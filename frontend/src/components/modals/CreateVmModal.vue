@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
@@ -23,6 +23,9 @@ const networks = ref([])
 const templates = ref([])
 
 const placeholder = ref('VM-????')
+
+const userTemplates = computed(() => templates.value.filter(t => !t.builtIn))
+const builtInTemplates = computed(() => templates.value.filter(t => t.builtIn))
 
 onMounted(async () => {
   // Generate placeholder name
@@ -141,7 +144,12 @@ async function submit() {
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
             >
               <option value="">None</option>
-              <option v-for="t in templates" :key="t.path" :value="t.path">{{ t.label }}</option>
+              <optgroup v-if="userTemplates.length" label="User Templates">
+                <option v-for="t in userTemplates" :key="t.path" :value="t.path">{{ t.label }}</option>
+              </optgroup>
+              <optgroup v-if="builtInTemplates.length" label="Built-in Templates">
+                <option v-for="t in builtInTemplates" :key="t.path" :value="t.path">{{ t.label }}</option>
+              </optgroup>
             </select>
           </div>
 
