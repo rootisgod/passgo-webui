@@ -27,6 +27,11 @@ jobs:
           npm ci
           npm run build
 
+      - name: Copy frontend dist for embedding
+        run: |
+          mkdir -p cmd/server/frontend
+          cp -r frontend/dist cmd/server/frontend/dist
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
