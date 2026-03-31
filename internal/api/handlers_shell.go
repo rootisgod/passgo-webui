@@ -9,24 +9,10 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
-	"github.com/rootisgod/passgo-web/internal/auth"
 )
 
 func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-
-	// Check auth for WebSocket
-	if !s.noAuth {
-		token := auth.TokenFromRequest(r)
-		if token == "" {
-			// Also check query param for WebSocket connections
-			token = r.URL.Query().Get("token")
-		}
-		if token == "" || !s.sessions.Valid(token) {
-			writeError(w, http.StatusUnauthorized, "authentication required")
-			return
-		}
-	}
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // Allow any origin for local tool

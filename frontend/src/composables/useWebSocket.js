@@ -7,8 +7,7 @@ export function useWebSocket(vmName) {
 
   function getWsUrl(name) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const token = document.cookie.match(/session=([^;]+)/)?.[1] || ''
-    return `${proto}//${location.host}/api/v1/vms/${name}/shell?token=${token}`
+    return `${proto}//${location.host}/api/v1/vms/${name}/shell`
   }
 
   function connect(name, onData) {

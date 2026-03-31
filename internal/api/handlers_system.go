@@ -1,12 +1,9 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
-	"time"
 
-	"github.com/rootisgod/passgo-web/internal/auth"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -65,58 +62,4 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 		GitCommit: s.gitCommit,
 		Hostname:  hostname,
 	})
-}
-
-type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type loginResponse struct {
-	Token string `json:"token"`
-}
-
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if req.Username != s.cfg.Username || !s.cfg.CheckPassword(req.Password) {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
-	}
-
-	token, err := s.sessions.Create()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create session")
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(24 * time.Hour / time.Second),
-	})
-
-	writeJSON(w, http.StatusOK, loginResponse{Token: token})
-}
-
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	token := auth.TokenFromRequest(r)
-	if token != "" {
-		s.sessions.Delete(token)
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
-	writeMessage(w, "logged out")
 }

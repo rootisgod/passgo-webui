@@ -1,20 +1,14 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Config struct {
 	Listen        string `json:"listen"`
-	Username      string `json:"username"`
-	PasswordHash  string `json:"password_hash"`
 	CloudInitDir  string `json:"cloud_init_dir"`
 	CloudInitRepo string `json:"cloud_init_repo"`
 }
@@ -59,39 +53,16 @@ func (c *Config) Save(path string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// CreateDefault creates a new config with generated credentials, saves it, and returns
-// the config and the plaintext password (for display to the user on first run).
-func CreateDefault(path string) (*Config, string, error) {
-	password := generatePassword()
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, "", fmt.Errorf("hash password: %w", err)
-	}
-
-	// Default cloud-init directory alongside config
+func CreateDefault(path string) (*Config, error) {
 	home, _ := os.UserHomeDir()
 	cloudInitDir := filepath.Join(home, ".passgo-web", "cloud-init")
 
 	cfg := &Config{
 		Listen:       ":8080",
-		Username:     "admin",
-		PasswordHash: string(hash),
 		CloudInitDir: cloudInitDir,
 	}
 	if err := cfg.Save(path); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return cfg, password, nil
-}
-
-func (c *Config) CheckPassword(password string) bool {
-	return bcrypt.CompareHashAndPassword([]byte(c.PasswordHash), []byte(password)) == nil
-}
-
-func generatePassword() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		return "changeme"
-	}
-	return hex.EncodeToString(b)[:16]
+	return cfg, nil
 }

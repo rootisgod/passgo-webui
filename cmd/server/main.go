@@ -31,13 +31,11 @@ func main() {
 	var (
 		port       int
 		configPath string
-		noAuth     bool
 		showVer    bool
 	)
 
 	flag.IntVar(&port, "port", 0, "Listen port (overrides config)")
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath(), "Config file path")
-	flag.BoolVar(&noAuth, "no-auth", false, "Disable authentication")
 	flag.BoolVar(&showVer, "version", false, "Print version and exit")
 	flag.Parse()
 
@@ -56,13 +54,11 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("no config found, creating default", "path", configPath)
-		var password string
-		cfg, password, err = config.CreateDefault(configPath)
+		cfg, err = config.CreateDefault(configPath)
 		if err != nil {
 			logger.Error("failed to create config", "err", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Default credentials — %s / %s\n", cfg.Username, password)
 		fmt.Printf("Config: %s\n", configPath)
 	}
 
@@ -84,7 +80,7 @@ func main() {
 	}
 
 	// Create and start server
-	srv := api.NewServer(mp, cfg, logger, noAuth, Version, BuildTime, GitCommit, builtinTemplatesFS)
+	srv := api.NewServer(mp, cfg, logger, Version, BuildTime, GitCommit, builtinTemplatesFS)
 	handler := srv.Handler(staticFS)
 
 	listen := cfg.Listen
@@ -94,9 +90,6 @@ func main() {
 
 	fmt.Printf("PassGo Web %s\n", Version)
 	fmt.Printf("Config: %s\n", configPath)
-	if noAuth {
-		fmt.Println("WARNING: Authentication disabled (--no-auth)")
-	}
 	fmt.Printf("Listening on http://0.0.0.0%s\n", listen)
 
 	if err := http.ListenAndServe(listen, handler); err != nil {

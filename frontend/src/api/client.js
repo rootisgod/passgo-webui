@@ -11,15 +11,11 @@ async function request(method, path, body) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
   }
   if (body !== undefined) {
     opts.body = JSON.stringify(body)
   }
   const res = await fetch(API_BASE + path, opts)
-  if (res.status === 401) {
-    throw new ApiError(401, 'Authentication required')
-  }
   const text = await res.text()
   let data
   try {
@@ -32,10 +28,6 @@ async function request(method, path, body) {
   }
   return data
 }
-
-// Auth
-export const login = (username, password) => request('POST', '/auth/login', { username, password })
-export const logout = () => request('POST', '/auth/logout')
 
 // VMs
 export const listVMs = () => request('GET', '/vms')

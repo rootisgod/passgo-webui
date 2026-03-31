@@ -9,7 +9,6 @@ export const useVmStore = defineStore('vms', {
     lastRefresh: null,
     loading: false,
     error: null,
-    authenticated: false,
     hostname: 'localhost',
   }),
 
@@ -51,9 +50,6 @@ export const useVmStore = defineStore('vms', {
         this.launches = launches
         this.lastRefresh = new Date()
       } catch (err) {
-        if (err.status === 401) {
-          this.authenticated = false
-        }
         this.error = err.message
       } finally {
         this.loading = false
