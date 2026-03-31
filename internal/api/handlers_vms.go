@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
@@ -46,15 +49,36 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	// Resolve the name now so we can return it immediately
 	name := multipass.ResolveLaunchName(req.Name)
 
+	// Resolve built-in cloud-init templates to a temp file
+	cloudInitFile := req.CloudInit
+	if strings.HasPrefix(cloudInitFile, "builtin:") {
+		templateName := strings.TrimPrefix(cloudInitFile, "builtin:")
+		content, err := s.builtinTemplatesFS.ReadFile("cloud-init/" + templateName)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "built-in template not found: "+templateName)
+			return
+		}
+		tmpFile := filepath.Join(os.TempDir(), "passgo-cloudinit-"+templateName)
+		if err := os.WriteFile(tmpFile, content, 0600); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to write temp cloud-init file")
+			return
+		}
+		cloudInitFile = tmpFile
+	}
+
 	// Track and launch asynchronously
 	s.launches.start(name)
 	go func() {
-		_, err := s.mp.LaunchVM(name, req.Release, req.CPUs, req.MemoryMB, req.DiskGB, req.CloudInit, req.Network)
+		_, err := s.mp.LaunchVM(name, req.Release, req.CPUs, req.MemoryMB, req.DiskGB, cloudInitFile, req.Network)
 		if err != nil {
 			s.logger.Error("VM launch failed", "name", name, "err", err)
 			s.launches.fail(name, err.Error())
 		} else {
 			s.launches.complete(name)
+		}
+		// Clean up temp file if we created one
+		if cloudInitFile != req.CloudInit {
+			os.Remove(cloudInitFile)
 		}
 	}()
 
