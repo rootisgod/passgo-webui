@@ -1,0 +1,9 @@
+#cloud-config
+
+# Install Docker CE and add the default 'ubuntu' user to the docker group.
+
+package_update: true
+
+runcmd:
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker ubuntu

@@ -1,0 +1,17 @@
+#cloud-config
+
+# Common development tools: git, curl, build tools, vim, htop, jq, and tree.
+
+package_update: true
+
+packages:
+  - git
+  - curl
+  - wget
+  - build-essential
+  - vim
+  - htop
+  - jq
+  - tree
+  - unzip
+  - net-tools

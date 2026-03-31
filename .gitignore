@@ -1,0 +1,22 @@
+# Go
+passgo-web
+/server
+dist/
+*.exe
+.task/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+cmd/server/frontend/dist/
+
+# Config
+.passgo-web/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

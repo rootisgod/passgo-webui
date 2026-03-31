@@ -1,0 +1,56 @@
+#cloud-config
+
+# Example showing many cloud-init modules. Use this as a starting point
+# and delete the sections you don't need.
+
+# --- System ---
+timezone: UTC
+locale: en_US.UTF-8
+package_update: true
+package_upgrade: true
+
+# --- Packages ---
+packages:
+  - git
+  - curl
+  - vim
+  - htop
+  - jq
+  - fail2ban
+
+# --- Users ---
+users:
+  - default
+  - name: deploy
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA...your-key-here
+
+# --- Write files ---
+write_files:
+  - path: /etc/motd
+    content: |
+      ========================================
+       Managed by cloud-init
+      ========================================
+    permissions: "0644"
+
+  - path: /home/ubuntu/.bash_aliases
+    content: |
+      alias ll='ls -alF'
+      alias gs='git status'
+      alias dc='docker compose'
+    owner: ubuntu:ubuntu
+    permissions: "0644"
+
+# --- Run commands (run once, in order) ---
+runcmd:
+  - echo "cloud-init provisioning started at $(date)" >> /var/log/cloud-init-custom.log
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+  - echo "cloud-init provisioning finished at $(date)" >> /var/log/cloud-init-custom.log
+
+# --- Final message shown in console and /var/log/cloud-init-output.log ---
+final_message: "System ready after $UPTIME seconds"

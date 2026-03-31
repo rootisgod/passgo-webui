@@ -1,0 +1,7 @@
+#cloud-config
+
+# Update package lists and upgrade all packages on first boot.
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true

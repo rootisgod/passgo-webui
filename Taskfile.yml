@@ -1,0 +1,127 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
+  LDFLAGS: '-s -w -X main.Version={{.VERSION}} -X main.BuildTime={{.DATE}} -X main.GitCommit={{.COMMIT}}'
+
+tasks:
+  default:
+    desc: Build the project
+    deps: [build]
+
+  # --- Frontend ---
+
+  frontend-install:
+    desc: Install frontend dependencies
+    dir: frontend
+    cmds:
+      - npm install
+    sources:
+      - package.json
+    generates:
+      - node_modules/.package-lock.json
+
+  frontend-build:
+    desc: Build frontend (produces frontend/dist/)
+    dir: frontend
+    deps: [frontend-install]
+    cmds:
+      - npm run build
+    sources:
+      - src/**/*
+      - index.html
+      - vite.config.js
+      - tailwind.config.js
+      - postcss.config.js
+      - package.json
+    generates:
+      - dist/index.html
+
+  embed-frontend:
+    desc: Copy built frontend into cmd/server for go:embed
+    deps: [frontend-build]
+    cmds:
+      - rm -rf cmd/server/frontend/dist
+      - mkdir -p cmd/server/frontend
+      - cp -r frontend/dist cmd/server/frontend/dist
+
+  # --- Build ---
+
+  build:
+    desc: Build the Go binary with embedded frontend
+    deps: [embed-frontend]
+    cmds:
+      - go build -ldflags="{{.LDFLAGS}}" -o passgo-web ./cmd/server
+
+  build-all:
+    desc: Cross-compile for all platforms
+    deps: [embed-frontend]
+    cmds:
+      - mkdir -p dist
+      - GOOS=darwin  GOARCH=arm64 go build -ldflags="{{.LDFLAGS}}" -o dist/passgo-web-darwin-arm64  ./cmd/server
+      - GOOS=darwin  GOARCH=amd64 go build -ldflags="{{.LDFLAGS}}" -o dist/passgo-web-darwin-amd64  ./cmd/server
+      - GOOS=linux   GOARCH=arm64 go build -ldflags="{{.LDFLAGS}}" -o dist/passgo-web-linux-arm64   ./cmd/server
+      - GOOS=linux   GOARCH=amd64 go build -ldflags="{{.LDFLAGS}}" -o dist/passgo-web-linux-amd64   ./cmd/server
+      - GOOS=windows GOARCH=amd64 go build -ldflags="{{.LDFLAGS}}" -o dist/passgo-web-windows-amd64.exe ./cmd/server
+
+  # --- Dev ---
+
+  dev:
+    desc: Build and run the full app locally (frontend + backend, single binary)
+    deps: [build]
+    cmds:
+      - echo ""
+      - echo "  ➜  http://localhost:8080"
+      - echo ""
+      - ./passgo-web --no-auth
+
+  dev-backend:
+    desc: Run the Go backend only (for split terminal dev)
+    cmds:
+      - go run ./cmd/server --no-auth --port 8080
+
+  dev-frontend:
+    desc: Run the Vite dev server with API proxy (for split terminal dev)
+    dir: frontend
+    deps: [frontend-install]
+    cmds:
+      - npm run dev
+
+  # --- Tests ---
+
+  test:
+    desc: Run all Go tests
+    cmds:
+      - go test ./... -v -count=1
+
+  test-race:
+    desc: Run Go tests with race detector
+    cmds:
+      - go test ./... -v -race -count=1
+
+  test-frontend:
+    desc: Run frontend tests
+    dir: frontend
+    deps: [frontend-install]
+    cmds:
+      - npx vitest run
+
+  test-all:
+    desc: Run all tests (Go + frontend)
+    deps: [test, test-frontend]
+
+  # --- Clean ---
+
+  clean:
+    desc: Remove all build artifacts
+    cmds:
+      - rm -f passgo-web
+      - rm -rf dist/
+      - rm -rf cmd/server/frontend/dist
+      - rm -rf frontend/dist
+      - rm -rf frontend/node_modules
