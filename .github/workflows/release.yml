@@ -71,8 +71,9 @@ jobs:
                 -X main.GitCommit=${GIT_COMMIT}" \
               -o "$binary_name" ./cmd/server/
 
-            # UPX compression (skip macOS — compatibility issues)
-            if [ "$goos" != "darwin" ]; then
+            # UPX compression (skip macOS and Windows — macOS compatibility
+            # issues, Windows Defender flags UPX-packed binaries as malware)
+            if [ "$goos" = "linux" ]; then
               upx --best --lzma "$binary_name" || true
             fi
           done
