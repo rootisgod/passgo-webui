@@ -1,9 +1,20 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
+import { getVersion } from '../../api/client.js'
 import { Wifi, WifiOff } from 'lucide-vue-next'
 
 const store = useVmStore()
+const buildTime = ref('')
+
+onMounted(async () => {
+  try {
+    const data = await getVersion()
+    buildTime.value = data.build_time || 'unknown'
+  } catch {
+    buildTime.value = 'unknown'
+  }
+})
 
 const timeSinceRefresh = computed(() => {
   if (!store.lastRefresh) return 'never'
@@ -19,6 +30,9 @@ const timeSinceRefresh = computed(() => {
       <Wifi v-if="!store.error" class="w-3 h-3 text-[var(--success)]" />
       <WifiOff v-else class="w-3 h-3 text-[var(--danger)]" />
       <span>{{ store.error ? 'Disconnected' : 'Connected' }}</span>
+    </div>
+    <div v-if="buildTime" class="text-[var(--text-muted)]">
+      Built: {{ buildTime }}
     </div>
     <div class="flex items-center gap-4">
       <span>{{ store.totalCount }} VMs</span>

@@ -78,12 +78,12 @@ tasks:
       - echo ""
       - echo "  ➜  http://localhost:8080"
       - echo ""
-      - ./passgo-web --no-auth
+      - ./passgo-web
 
   dev-backend:
     desc: Run the Go backend only (for split terminal dev)
     cmds:
-      - go run ./cmd/server --no-auth --port 8080
+      - go run ./cmd/server --port 8080
 
   dev-frontend:
     desc: Run the Vite dev server with API proxy (for split terminal dev)
