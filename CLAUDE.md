@@ -121,11 +121,14 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 
 ### Backend (Go)
 - All multipass CLI interaction goes through `pkg/multipass/Client` methods using `c.run()` (which wraps `exec.Command("multipass", ...)`)
-- API handlers are grouped by domain: `handlers_vms.go`, `handlers_system.go`, `handlers_cloudinit.go`
+- API handlers are grouped by domain: `handlers_vms.go`, `handlers_system.go`, `handlers_cloudinit.go`, `handlers_groups.go`, `handlers_shell.go`
 - Response helpers: `writeJSON(w, status, v)`, `writeError(w, status, msg)`, `writeMessage(w, msg)` in `responses.go`
 - Path parameters via Go 1.22+ `r.PathValue("name")`
 - File safety: all user-facing file operations validate with `sanitizeTemplateName()` (regex + filepath.Rel check)
 - Long-running operations (VM launch, clone) run in goroutines with in-memory status tracking via launchTracker
+- Persistent PTY sessions via `ptyStore` (keyed by `vmName:sessionID`): shell processes survive WebSocket disconnects, 64KB scrollback ring buffer replays on reconnect, 30-min TTL reaper cleans idle sessions
+- Platform-specific PTY code split via build tags: `pty_store_unix.go` (creack/pty) and `pty_store_windows.go` (conpty)
+- VM groups stored in `config.json` as `groups []string` (ordered names) + `vm_groups map[string]string` (VM→group), protected by `groupMu` mutex
 - Embedded assets use `//go:embed` in `cmd/server/main.go` and are passed to `api.NewServer()`
 
 ### Frontend (Vue 3)
@@ -142,6 +145,9 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Context menu (`ContextMenu.vue`) is reusable: positioned dropdown with click-outside/Escape close
 - Multi-VM selection via `selectedVms` array in vmStore, bulk actions use `Promise.allSettled`
 - Tabs that run `multipass exec` (Files) must guard against stopped VMs to prevent auto-start
+- Console supports multiple tabs per VM: each tab is an independent PTY session via `ConsoleTerminal.vue`, managed by `VmConsoleTab.vue` as a tab container; all terminals stay mounted (using `invisible` class) so WebSocket connections persist when switching tabs
+- VM groups in sidebar: collapsible folder nodes with state badges, group context menu (start/stop/delete all, rename, delete group), "Move to Group..." in VM context menu
+- `useWebSocket.js` composable is a factory (not singleton) — each terminal instance creates its own
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
@@ -159,7 +165,10 @@ Cloud-Init:        GET /cloud-init/templates (list all, built-in + user)
                    GET/POST/PUT/DELETE /cloud-init/templates/{name} (CRUD)
 Launches:          GET /launches, DELETE /launches/{name} (async launch tracking)
 Networks:          GET /networks
-Shell:             WS /vms/{name}/shell
+Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (list),
+                   DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
+Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
+                   DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
 ```
 
 ### Frontend Component Tree
@@ -167,17 +176,20 @@ Shell:             WS /vms/{name}/shell
 App.vue
 ├── LoginPage.vue
 ├── AppHeader.vue
-├── TreeSidebar.vue (host node, Cloud-Init node, VM list, context menu, multi-select + bulk actions)
+├── TreeSidebar.vue (host node, Cloud-Init node, group folders, VM list, context menus, multi-select + bulk actions)
 │   ├── ContextMenu.vue (reusable right-click menu)
 │   ├── CloneVmModal.vue
-│   └── ConfirmModal.vue
+│   ├── ConfirmModal.vue
+│   ├── GroupNameModal.vue (create/rename group)
+│   └── MoveToGroupModal.vue (assign VM to group)
 ├── CloudInitPanel.vue (outside Transition — CodeMirror conflict)
 │   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue
 ├── VmDetailPanel.vue (tabbed)
 │   ├── VmSummaryTab.vue + CloudInitStatus.vue + Sparkline.vue (resource timeline graphs)
-│   ├── VmConsoleTab.vue (xterm.js + WebSocket, power-on guard)
+│   ├── VmConsoleTab.vue (multi-tab container: tab bar + N ConsoleTerminal instances)
+│   │   └── ConsoleTerminal.vue (single xterm.js + WebSocket session, power-on guard)
 │   ├── VmSnapshotsTab.vue (clone from snapshot support)
 │   ├── VmMountsTab.vue
 │   ├── VmTransferTab.vue (file browser, power-on guard)
