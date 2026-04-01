@@ -67,6 +67,39 @@ export const updateCloudInitTemplate = (name, content) => request('PUT', `/cloud
 export const deleteCloudInitTemplate = (name) => request('DELETE', `/cloud-init/templates/${encodeURIComponent(name)}`)
 export const getVersion = () => request('GET', '/version')
 
+// File transfer
+export const listFiles = (vmName, path) => request('GET', `/vms/${vmName}/files/ls?path=${encodeURIComponent(path)}`)
+
+export async function uploadFile(vmName, destPath, file) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('path', destPath)
+  const res = await fetch(`${API_BASE}/vms/${vmName}/files`, { method: 'POST', body: form })
+  if (!res.ok) {
+    const text = await res.text()
+    let msg
+    try { msg = JSON.parse(text).error } catch { msg = text }
+    throw new ApiError(res.status, msg)
+  }
+}
+
+export async function downloadFile(vmName, remotePath) {
+  const res = await fetch(`${API_BASE}/vms/${vmName}/files?path=${encodeURIComponent(remotePath)}`)
+  if (!res.ok) {
+    const text = await res.text()
+    let msg
+    try { msg = JSON.parse(text).error } catch { msg = text }
+    throw new ApiError(res.status, msg)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = remotePath.split('/').pop()
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // Auth
 export const login = (username, password) => request('POST', '/auth/login', { username, password })
 export const logout = () => request('POST', '/auth/logout')

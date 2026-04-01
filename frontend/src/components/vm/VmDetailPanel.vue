@@ -5,6 +5,7 @@ import VmSummaryTab from './VmSummaryTab.vue'
 import VmConsoleTab from './VmConsoleTab.vue'
 import VmSnapshotsTab from './VmSnapshotsTab.vue'
 import VmMountsTab from './VmMountsTab.vue'
+import VmTransferTab from './VmTransferTab.vue'
 import VmConfigTab from './VmConfigTab.vue'
 
 const store = useVmStore()
@@ -15,6 +16,7 @@ const tabs = [
   { id: 'console', label: 'Console' },
   { id: 'snapshots', label: 'Snapshots' },
   { id: 'mounts', label: 'Mounts' },
+  { id: 'files', label: 'Files' },
   { id: 'config', label: 'Config' },
 ]
 
@@ -52,6 +54,7 @@ watch(() => store.selectedNode, () => {
         <VmConsoleTab v-else-if="activeTab === 'console'" :key="'console-' + store.selectedNode" />
         <VmSnapshotsTab v-else-if="activeTab === 'snapshots'" :key="'snap-' + store.selectedNode" />
         <VmMountsTab v-else-if="activeTab === 'mounts'" :key="'mounts-' + store.selectedNode" />
+        <VmTransferTab v-else-if="activeTab === 'files'" :key="'files-' + store.selectedNode" />
         <VmConfigTab v-else-if="activeTab === 'config'" :key="'config-' + store.selectedNode" />
       </Transition>
     </div>
