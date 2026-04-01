@@ -1,12 +1,28 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
-import { Folder, File, Upload, Download, ArrowUp, RefreshCw } from 'lucide-vue-next'
+import { Folder, File, Upload, Download, ArrowUp, RefreshCw, PowerOff, Play } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
+const vm = computed(() => store.selectedVm)
+const isRunning = computed(() => vm.value?.state === 'Running')
+const starting = ref(false)
+
+async function powerOn() {
+  starting.value = true
+  try {
+    await api.startVM(store.selectedNode)
+    toasts.success(`${store.selectedNode} starting...`)
+    store.fetchVMs()
+  } catch (e) {
+    toasts.error(e.message)
+  } finally {
+    starting.value = false
+  }
+}
 const currentPath = ref('/home/ubuntu')
 const pathInput = ref('/home/ubuntu')
 const files = ref([])
@@ -89,11 +105,33 @@ function formatSize(sizeStr) {
   return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
 }
 
-onMounted(loadFiles)
+watch(isRunning, (running) => {
+  if (running && files.value.length === 0) loadFiles()
+})
+
+onMounted(() => {
+  if (isRunning.value) loadFiles()
+})
 </script>
 
 <template>
-  <div class="p-6">
+  <!-- VM not running -->
+  <div v-if="!isRunning" class="flex flex-col items-center justify-center h-full gap-4 text-[var(--text-secondary)]">
+    <PowerOff class="w-12 h-12 text-[var(--muted)]" />
+    <p class="text-lg">Powered Off</p>
+    <p class="text-sm">Start the VM to browse files</p>
+    <button
+      @click="powerOn"
+      :disabled="starting"
+      class="flex items-center gap-2 mt-2 px-4 py-2 text-sm rounded bg-green-900/30 hover:bg-[var(--success)] text-green-300 hover:text-white transition-colors disabled:opacity-40"
+    >
+      <Play class="w-4 h-4" />
+      {{ starting ? 'Starting...' : 'Start VM' }}
+    </button>
+  </div>
+
+  <!-- VM running -->
+  <div v-else class="p-6">
     <!-- Path bar -->
     <div class="flex items-center gap-2 mb-4">
       <button
