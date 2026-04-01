@@ -83,14 +83,18 @@ func (c *Client) parseInfoJSON(output string) ([]VMInfo, error) {
 
 		for _, disk := range detail.Disks {
 			if used, err := strconv.ParseInt(disk.Used, 10, 64); err == nil {
+				vm.DiskUsageRaw = used
 				vm.DiskUsage = formatBytes(used)
 			}
 			if total, err := strconv.ParseInt(disk.Total, 10, 64); err == nil {
+				vm.DiskTotalRaw = total
 				vm.DiskTotal = formatBytes(total)
 			}
 			break
 		}
 
+		vm.MemoryUsageRaw = detail.Memory.Used
+		vm.MemoryTotalRaw = detail.Memory.Total
 		vm.MemoryUsage = formatBytes(detail.Memory.Used)
 		vm.MemoryTotal = formatBytes(detail.Memory.Total)
 

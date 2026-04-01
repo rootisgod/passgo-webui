@@ -7,7 +7,7 @@ import ActionButton from '../shared/ActionButton.vue'
 import StatusDot from '../shared/StatusDot.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloudInitStatus from './CloudInitStatus.vue'
-import { Play, Square, Pause, Trash2, RotateCcw } from 'lucide-vue-next'
+import { Play, Square, Pause, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -23,6 +23,36 @@ const stateColors = {
   Creating: 'bg-blue-900/30 text-[var(--accent)] border-blue-800',
 }
 
+// Resource metrics
+const memoryPercent = computed(() => {
+  if (!vm.value?.memory_total_raw) return 0
+  return Math.round((vm.value.memory_usage_raw / vm.value.memory_total_raw) * 100)
+})
+
+const diskPercent = computed(() => {
+  if (!vm.value?.disk_total_raw) return 0
+  return Math.round((vm.value.disk_usage_raw / vm.value.disk_total_raw) * 100)
+})
+
+const loadValues = computed(() => {
+  if (!vm.value?.load) return null
+  const parts = vm.value.load.split(' ').map(Number)
+  return parts.length === 3 ? { one: parts[0], five: parts[1], fifteen: parts[2] } : null
+})
+
+function barColor(percent) {
+  if (percent > 90) return 'bg-[var(--danger)]'
+  if (percent > 70) return 'bg-[var(--warning)]'
+  return 'bg-[var(--success)]'
+}
+
+function loadColor(load, cpus) {
+  const ratio = load / (parseInt(cpus) || 1)
+  if (ratio > 1) return 'text-[var(--danger)]'
+  if (ratio > 0.7) return 'text-[var(--warning)]'
+  return 'text-[var(--success)]'
+}
+
 const properties = computed(() => {
   if (!vm.value) return []
   const v = vm.value
@@ -33,9 +63,6 @@ const properties = computed(() => {
     { label: 'Release', value: v.release || '—' },
     { label: 'Image', value: v.image_hash ? v.image_hash.substring(0, 12) : '—' },
     { label: 'CPUs', value: v.cpus || '—' },
-    { label: 'Memory', value: v.memory_usage && v.memory_total ? `${v.memory_usage} / ${v.memory_total}` : '—' },
-    { label: 'Disk', value: v.disk_usage && v.disk_total ? `${v.disk_usage} / ${v.disk_total}` : '—' },
-    { label: 'Load', value: v.load || '—' },
     { label: 'Snapshots', value: String(v.snapshots ?? 0) },
     { label: 'Mounts', value: String(v.mounts?.length ?? 0) },
   ]
@@ -67,6 +94,51 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
 
 <template>
   <div class="p-6" v-if="vm">
+    <!-- Resource Cards (only when running) -->
+    <div v-if="isRunning && loadValues" class="grid grid-cols-3 gap-4 mb-6">
+      <!-- CPU Load -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <Cpu class="w-4 h-4" />
+          CPU Load
+        </div>
+        <div class="text-2xl font-bold mb-1" :class="loadColor(loadValues.one, vm.cpus)">
+          {{ loadValues.one.toFixed(2) }}
+        </div>
+        <div class="text-xs text-[var(--text-secondary)]">
+          {{ loadValues.five.toFixed(2) }} <span class="text-[var(--muted)]">5m</span>
+          {{ loadValues.fifteen.toFixed(2) }} <span class="text-[var(--muted)]">15m</span>
+          <span class="ml-2 text-[var(--muted)]">/ {{ vm.cpus }} CPUs</span>
+        </div>
+      </div>
+
+      <!-- Memory -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <MemoryStick class="w-4 h-4" />
+          Memory
+        </div>
+        <div class="text-2xl font-bold mb-1">{{ memoryPercent }}%</div>
+        <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
+          <div class="h-full rounded-full transition-all" :class="barColor(memoryPercent)" :style="{ width: memoryPercent + '%' }" />
+        </div>
+        <div class="text-xs text-[var(--text-secondary)]">{{ vm.memory_usage }} / {{ vm.memory_total }}</div>
+      </div>
+
+      <!-- Disk -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <HardDrive class="w-4 h-4" />
+          Disk
+        </div>
+        <div class="text-2xl font-bold mb-1">{{ diskPercent }}%</div>
+        <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
+          <div class="h-full rounded-full transition-all" :class="barColor(diskPercent)" :style="{ width: diskPercent + '%' }" />
+        </div>
+        <div class="text-xs text-[var(--text-secondary)]">{{ vm.disk_usage }} / {{ vm.disk_total }}</div>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Properties -->
       <div class="lg:col-span-2">

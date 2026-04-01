@@ -27,7 +27,7 @@ async function handleLogin() {
 
 <template>
   <div class="h-screen flex items-center justify-center bg-[var(--bg-primary)]">
-    <form @submit.prevent="handleLogin" class="w-80 p-6 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
+    <form @submit.prevent="handleLogin" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" class="w-80 p-6 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
       <div class="flex items-center justify-center gap-3 mb-6">
         <Server class="w-6 h-6 text-[var(--accent)]" />
         <span class="text-xl font-semibold">PassGo Web</span>
@@ -41,7 +41,10 @@ async function handleLogin() {
       <input
         v-model="username"
         type="text"
-        autocomplete="username"
+        autocomplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
         class="w-full mb-4 px-3 py-2 rounded bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
       />
 
@@ -49,7 +52,10 @@ async function handleLogin() {
       <input
         v-model="password"
         type="password"
-        autocomplete="current-password"
+        autocomplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
         class="w-full mb-6 px-3 py-2 rounded bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
       />
 

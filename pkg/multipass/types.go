@@ -12,9 +12,13 @@ type VMInfo struct {
 	Load        string      `json:"load"`
 	DiskUsage   string      `json:"disk_usage"`
 	DiskTotal   string      `json:"disk_total"`
-	MemoryUsage string      `json:"memory_usage"`
-	MemoryTotal string      `json:"memory_total"`
-	Mounts      []MountInfo `json:"mounts"`
+	MemoryUsage    string      `json:"memory_usage"`
+	MemoryTotal    string      `json:"memory_total"`
+	MemoryUsageRaw int64       `json:"memory_usage_raw"`
+	MemoryTotalRaw int64       `json:"memory_total_raw"`
+	DiskUsageRaw   int64       `json:"disk_usage_raw"`
+	DiskTotalRaw   int64       `json:"disk_total_raw"`
+	Mounts         []MountInfo `json:"mounts"`
 }
 
 // SnapshotInfo represents a snapshot of a VM.
