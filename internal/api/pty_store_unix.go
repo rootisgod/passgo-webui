@@ -16,7 +16,7 @@ type ptyHandle struct {
 }
 
 // startPtySession creates a new multipass shell PTY on Unix/macOS.
-func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
+func startPtySession(vmName, sessionID string, store *ptyStore) (*ptySession, error) {
 	cmd := exec.Command("multipass", "shell", vmName)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
@@ -27,6 +27,7 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 
 	sess := &ptySession{
 		vmName:     vmName,
+		sessionID:  sessionID,
 		clients:    make(map[*wsClient]struct{}),
 		scrollback: newRingBuffer(scrollbackSize),
 		lastActive: time.Now(),
@@ -35,6 +36,8 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 		done:       make(chan struct{}),
 		handle:     &ptyHandle{ptmx: ptmx, cmd: cmd},
 	}
+
+	key := sessionKey(vmName, sessionID)
 
 	// PTY read pump: reads from PTY, broadcasts to all clients
 	go func() {
@@ -51,8 +54,8 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 			}
 		}
 		close(sess.done)
-		store.remove(vmName)
-		store.logger.Info("PTY session ended", "vm", vmName)
+		store.remove(key)
+		store.logger.Info("PTY session ended", "vm", vmName, "session", sessionID)
 	}()
 
 	// Collect exit status in background

@@ -167,7 +167,7 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.ptySessions.killSession(name)
+	s.ptySessions.killAllSessions(name)
 	writeMessage(w, "VM stopped")
 }
 
@@ -192,7 +192,7 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.ptySessions.killSession(name)
+	s.ptySessions.killAllSessions(name)
 	writeMessage(w, "VM deleted")
 }
 

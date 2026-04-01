@@ -8,6 +8,7 @@ import (
 
 func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	sid := r.PathValue("sessionId")
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // Allow any origin for local tool
@@ -18,11 +19,11 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	// Get or create persistent PTY session for this VM
-	sess, err := s.ptySessions.getOrCreate(name)
-	if err != nil {
-		s.logger.Error("pty session failed", "err", err, "vm", name)
-		conn.Close(websocket.StatusInternalError, "failed to start shell")
+	// Look up existing PTY session
+	sess := s.ptySessions.get(name, sid)
+	if sess == nil {
+		s.logger.Warn("shell session not found", "vm", name, "session", sid)
+		conn.Close(websocket.StatusInternalError, "session not found")
 		return
 	}
 
@@ -82,4 +83,31 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+func (s *Server) handleCreateShellSession(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	_, id, err := s.ptySessions.create(name)
+	if err != nil {
+		s.logger.Error("failed to create shell session", "err", err, "vm", name)
+		writeError(w, http.StatusInternalServerError, "failed to start shell: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"sessionId": id})
+}
+
+func (s *Server) handleListShellSessions(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	sessions := s.ptySessions.listSessions(name)
+	if sessions == nil {
+		sessions = []SessionInfo{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleDeleteShellSession(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	sid := r.PathValue("sessionId")
+	s.ptySessions.killSession(sessionKey(name, sid))
+	writeMessage(w, "session deleted")
 }

@@ -1,24 +1,20 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
-import { useWebSocket } from '../../composables/useWebSocket.js'
-import { startVM } from '../../api/client.js'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import { RefreshCw, PowerOff, Play } from 'lucide-vue-next'
-import '@xterm/xterm/css/xterm.css'
+import { startVM, createShellSession, listShellSessions, deleteShellSession } from '../../api/client.js'
+import { PowerOff, Play, Plus, X } from 'lucide-vue-next'
+import ConsoleTerminal from './ConsoleTerminal.vue'
 
 const store = useVmStore()
-const termRef = ref(null)
-let term = null
-let fitAddon = null
-const { connected, error, connect, send, sendResize, disconnect } = useWebSocket()
-
 const toasts = useToastStore()
 const vm = computed(() => store.selectedVm)
 const isRunning = computed(() => vm.value?.state === 'Running')
 const starting = ref(false)
+
+const consoleTabs = ref([])
+const activeSessionId = ref(null)
+let tabCounter = 0
 
 async function powerOn() {
   starting.value = true
@@ -33,87 +29,72 @@ async function powerOn() {
   }
 }
 
-const termInitialized = ref(false)
-
-function initTerminal() {
-  if (termInitialized.value || !termRef.value) return
-
-  term = new Terminal({
-    cursorBlink: true,
-    fontSize: 14,
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-    theme: {
-      background: '#1a1a2e',
-      foreground: '#e2e8f0',
-      cursor: '#3b82f6',
-      selectionBackground: '#3b82f640',
-    },
-  })
-
-  fitAddon = new FitAddon()
-  term.loadAddon(fitAddon)
-  term.open(termRef.value)
-
-  nextTick(() => {
-    fitAddon.fit()
-  })
-
-  term.onData((data) => {
-    send(new TextEncoder().encode(data))
-  })
-
-  term.onResize(({ cols, rows }) => {
-    sendResize(cols, rows)
-  })
-
-  connect(store.selectedNode, (data) => {
-    term.write(data)
-  })
-
-  termInitialized.value = true
+async function initSessions() {
+  const vmName = store.selectedNode
+  try {
+    const sessions = await listShellSessions(vmName)
+    if (sessions.length > 0) {
+      consoleTabs.value = sessions
+        .filter(s => s.alive)
+        .map(s => ({ sessionId: s.sessionId, label: `Shell ${++tabCounter}` }))
+      if (consoleTabs.value.length > 0) {
+        activeSessionId.value = consoleTabs.value[0].sessionId
+        return
+      }
+    }
+  } catch {
+    // No existing sessions — will create one below
+  }
+  await addTab()
 }
 
-function reconnect() {
-  // Don't clear — server replays scrollback on reconnect
-  connect(store.selectedNode, (data) => {
-    term.write(data)
-  })
-}
-
-let resizeObserver = null
-
-function setupResizeObserver() {
-  if (resizeObserver) return
-  resizeObserver = new ResizeObserver(() => {
-    if (fitAddon) fitAddon.fit()
-  })
-  if (termRef.value) {
-    resizeObserver.observe(termRef.value)
+async function addTab() {
+  const vmName = store.selectedNode
+  try {
+    const { sessionId } = await createShellSession(vmName)
+    const tab = { sessionId, label: `Shell ${++tabCounter}` }
+    consoleTabs.value.push(tab)
+    activeSessionId.value = sessionId
+  } catch (e) {
+    toasts.error('Failed to create shell: ' + e.message)
   }
 }
 
-// Watch for the VM becoming Running (e.g. after clicking Start VM)
+async function closeTab(sessionId) {
+  const vmName = store.selectedNode
+  try {
+    await deleteShellSession(vmName, sessionId)
+  } catch {
+    // Session may already be dead — remove tab anyway
+  }
+
+  const idx = consoleTabs.value.findIndex(t => t.sessionId === sessionId)
+  consoleTabs.value.splice(idx, 1)
+
+  if (consoleTabs.value.length === 0) {
+    // Last tab closed — create a replacement
+    await addTab()
+  } else if (activeSessionId.value === sessionId) {
+    // Switch to nearest tab
+    const newIdx = Math.min(idx, consoleTabs.value.length - 1)
+    activeSessionId.value = consoleTabs.value[newIdx].sessionId
+  }
+}
+
+function switchTab(sessionId) {
+  activeSessionId.value = sessionId
+}
+
 watch(isRunning, (running) => {
-  if (running && !termInitialized.value) {
-    // Wait for the v-if to render the terminal div
-    nextTick(() => {
-      initTerminal()
-      setupResizeObserver()
-    })
+  if (running && consoleTabs.value.length === 0) {
+    initSessions()
   }
 })
 
 onMounted(() => {
   if (isRunning.value) {
-    initTerminal()
-    setupResizeObserver()
+    initSessions()
   }
-})
-
-onUnmounted(() => {
-  disconnect()
-  if (resizeObserver) resizeObserver.disconnect()
-  if (term) term.dispose()
 })
 </script>
 
@@ -133,30 +114,45 @@ onUnmounted(() => {
     </button>
   </div>
 
-  <!-- VM running — show terminal -->
+  <!-- VM running — show tabbed console -->
   <div v-else class="flex flex-col h-full">
-    <!-- Toolbar -->
-    <div class="flex items-center gap-3 px-4 py-2 bg-[var(--bg-surface)] border-b border-[var(--border)]">
-      <div class="flex items-center gap-2 text-sm">
-        <span
-          class="w-2 h-2 rounded-full"
-          :class="connected ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'"
-        />
-        <span class="text-[var(--text-secondary)]">
-          {{ connected ? 'Connected' : error || 'Disconnected' }}
-        </span>
-      </div>
+    <!-- Tab bar -->
+    <div class="flex items-center bg-[var(--bg-surface)] border-b border-[var(--border)] overflow-x-auto">
       <button
-        v-if="!connected"
-        @click="reconnect"
-        class="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-[var(--bg-hover)] hover:bg-[var(--accent)] transition-colors"
+        v-for="tab in consoleTabs"
+        :key="tab.sessionId"
+        @click="switchTab(tab.sessionId)"
+        class="group flex items-center gap-1.5 px-3 py-1.5 text-xs border-r border-[var(--border)] whitespace-nowrap transition-colors"
+        :class="tab.sessionId === activeSessionId
+          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]'
+          : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
       >
-        <RefreshCw class="w-3 h-3" />
-        Reconnect
+        <span>{{ tab.label }}</span>
+        <X
+          @click.stop="closeTab(tab.sessionId)"
+          class="w-3 h-3 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity cursor-pointer"
+        />
+      </button>
+      <button
+        @click="addTab"
+        class="flex items-center px-2 py-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+        title="New shell"
+      >
+        <Plus class="w-3.5 h-3.5" />
       </button>
     </div>
 
-    <!-- Terminal -->
-    <div ref="termRef" class="flex-1 p-1" />
+    <!-- Terminal panes (all mounted, only active visible) -->
+    <div class="flex-1 relative">
+      <ConsoleTerminal
+        v-for="tab in consoleTabs"
+        :key="tab.sessionId"
+        :vmName="store.selectedNode"
+        :sessionId="tab.sessionId"
+        :active="tab.sessionId === activeSessionId"
+        class="absolute inset-0"
+        :class="{ 'invisible': tab.sessionId !== activeSessionId }"
+      />
+    </div>
   </div>
 </template>

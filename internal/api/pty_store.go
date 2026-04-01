@@ -1,8 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,6 +58,7 @@ type wsClient struct {
 // ptySession holds one persistent shell session for a VM.
 type ptySession struct {
 	vmName     string
+	sessionID  string
 	mu         sync.Mutex
 	clients    map[*wsClient]struct{}
 	scrollback *ringBuffer
@@ -118,12 +122,24 @@ func (ps *ptySession) isAlive() bool {
 	}
 }
 
-// ptyStore manages all active PTY sessions, keyed by VM name.
+// sessionKey returns the composite map key for a VM session.
+func sessionKey(vmName, sessionID string) string {
+	return vmName + ":" + sessionID
+}
+
+// SessionInfo is the JSON-serializable info for a shell session.
+type SessionInfo struct {
+	SessionID string `json:"sessionId"`
+	Alive     bool   `json:"alive"`
+}
+
+// ptyStore manages all active PTY sessions, keyed by vmName:sessionID.
 type ptyStore struct {
 	mu       sync.Mutex
 	sessions map[string]*ptySession
 	logger   *slog.Logger
 	stopCh   chan struct{}
+	counter  int64 // atomic counter for session IDs
 }
 
 func newPtyStore(logger *slog.Logger) *ptyStore {
@@ -136,43 +152,92 @@ func newPtyStore(logger *slog.Logger) *ptyStore {
 	return ps
 }
 
-// getOrCreate returns an existing live session or creates a new one.
-func (store *ptyStore) getOrCreate(vmName string) (*ptySession, error) {
-	store.mu.Lock()
-	defer store.mu.Unlock()
+// create spawns a new PTY session for a VM and returns it with its session ID.
+func (store *ptyStore) create(vmName string) (*ptySession, string, error) {
+	id := fmt.Sprintf("%d", atomic.AddInt64(&store.counter, 1))
 
-	if sess, ok := store.sessions[vmName]; ok && sess.isAlive() {
-		return sess, nil
-	}
-	// Clean up dead session if present
-	delete(store.sessions, vmName)
-
-	sess, err := startPtySession(vmName, store)
+	sess, err := startPtySession(vmName, id, store)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	store.sessions[vmName] = sess
-	return sess, nil
+
+	key := sessionKey(vmName, id)
+	store.mu.Lock()
+	store.sessions[key] = sess
+	store.mu.Unlock()
+
+	store.logger.Info("created PTY session", "vm", vmName, "session", id)
+	return sess, id, nil
 }
 
-// remove cleans up a session from the store.
-func (store *ptyStore) remove(vmName string) {
+// get returns an existing live session or nil.
+func (store *ptyStore) get(vmName, sessionID string) *ptySession {
+	key := sessionKey(vmName, sessionID)
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	delete(store.sessions, vmName)
+	sess, ok := store.sessions[key]
+	if ok && sess.isAlive() {
+		return sess
+	}
+	return nil
 }
 
-// killSession terminates a specific VM's PTY session if it exists.
-func (store *ptyStore) killSession(vmName string) {
+// listSessions returns info about all sessions for a VM.
+func (store *ptyStore) listSessions(vmName string) []SessionInfo {
+	prefix := vmName + ":"
 	store.mu.Lock()
-	sess, ok := store.sessions[vmName]
+	defer store.mu.Unlock()
+
+	var result []SessionInfo
+	for key, sess := range store.sessions {
+		if strings.HasPrefix(key, prefix) {
+			result = append(result, SessionInfo{
+				SessionID: sess.sessionID,
+				Alive:     sess.isAlive(),
+			})
+		}
+	}
+	return result
+}
+
+// remove cleans up a session from the store by composite key.
+func (store *ptyStore) remove(key string) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	delete(store.sessions, key)
+}
+
+// killSession terminates a specific PTY session by composite key.
+func (store *ptyStore) killSession(key string) {
+	store.mu.Lock()
+	sess, ok := store.sessions[key]
 	if ok {
-		delete(store.sessions, vmName)
+		delete(store.sessions, key)
 	}
 	store.mu.Unlock()
 	if ok {
 		sess.kill()
-		store.logger.Info("killed PTY session", "vm", vmName)
+		store.logger.Info("killed PTY session", "key", key)
+	}
+}
+
+// killAllSessions terminates all PTY sessions for a VM.
+func (store *ptyStore) killAllSessions(vmName string) {
+	prefix := vmName + ":"
+	store.mu.Lock()
+	var toKill []*ptySession
+	for key, sess := range store.sessions {
+		if strings.HasPrefix(key, prefix) {
+			toKill = append(toKill, sess)
+			delete(store.sessions, key)
+		}
+	}
+	store.mu.Unlock()
+	for _, sess := range toKill {
+		sess.kill()
+	}
+	if len(toKill) > 0 {
+		store.logger.Info("killed all PTY sessions", "vm", vmName, "count", len(toKill))
 	}
 }
 
@@ -185,22 +250,21 @@ func (store *ptyStore) reaper() {
 		case <-ticker.C:
 			var toKill []*ptySession
 			store.mu.Lock()
-			for name, sess := range store.sessions {
+			for key, sess := range store.sessions {
 				sess.mu.Lock()
 				idle := len(sess.clients) == 0 && time.Since(sess.lastActive) > ptySessionTTL
 				dead := !sess.isAlive()
 				sess.mu.Unlock()
 				if idle || dead {
 					if idle {
-						store.logger.Info("reaping idle PTY session", "vm", name,
+						store.logger.Info("reaping idle PTY session", "key", key,
 							"idle", time.Since(sess.lastActive).Round(time.Second))
 						toKill = append(toKill, sess)
 					}
-					delete(store.sessions, name)
+					delete(store.sessions, key)
 				}
 			}
 			store.mu.Unlock()
-			// Kill outside the lock so read pump goroutines can call store.remove()
 			for _, sess := range toKill {
 				sess.kill()
 			}
@@ -215,9 +279,9 @@ func (store *ptyStore) shutdown() {
 	close(store.stopCh)
 	store.mu.Lock()
 	var toKill []*ptySession
-	for name, sess := range store.sessions {
+	for key, sess := range store.sessions {
 		toKill = append(toKill, sess)
-		delete(store.sessions, name)
+		delete(store.sessions, key)
 	}
 	store.mu.Unlock()
 	for _, sess := range toKill {

@@ -96,8 +96,11 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("PUT /api/v1/cloud-init/templates/{name}", s.handleUpdateCloudInitTemplate)
 	mux.HandleFunc("DELETE /api/v1/cloud-init/templates/{name}", s.handleDeleteCloudInitTemplate)
 
-	// Shell WebSocket
-	mux.HandleFunc("/api/v1/vms/{name}/shell", s.handleShell)
+	// Shell sessions
+	mux.HandleFunc("POST /api/v1/vms/{name}/shell/sessions", s.handleCreateShellSession)
+	mux.HandleFunc("GET /api/v1/vms/{name}/shell/sessions", s.handleListShellSessions)
+	mux.HandleFunc("DELETE /api/v1/vms/{name}/shell/sessions/{sessionId}", s.handleDeleteShellSession)
+	mux.HandleFunc("/api/v1/vms/{name}/shell/{sessionId}", s.handleShell)
 
 	// Serve static frontend for all non-API routes
 	if staticFS != nil {

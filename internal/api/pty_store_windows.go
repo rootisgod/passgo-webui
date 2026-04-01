@@ -15,7 +15,7 @@ type ptyHandle struct {
 }
 
 // startPtySession creates a new multipass shell ConPTY on Windows.
-func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
+func startPtySession(vmName, sessionID string, store *ptyStore) (*ptySession, error) {
 	commandLine := fmt.Sprintf("multipass shell %s", vmName)
 	cpty, err := conpty.Start(commandLine, conpty.ConPtyDimensions(120, 40))
 	if err != nil {
@@ -24,6 +24,7 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 
 	sess := &ptySession{
 		vmName:     vmName,
+		sessionID:  sessionID,
 		clients:    make(map[*wsClient]struct{}),
 		scrollback: newRingBuffer(scrollbackSize),
 		lastActive: time.Now(),
@@ -32,6 +33,8 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 		done:       make(chan struct{}),
 		handle:     &ptyHandle{cpty: cpty},
 	}
+
+	key := sessionKey(vmName, sessionID)
 
 	// ConPTY read pump: reads from ConPTY, broadcasts to all clients
 	go func() {
@@ -48,8 +51,8 @@ func startPtySession(vmName string, store *ptyStore) (*ptySession, error) {
 			}
 		}
 		close(sess.done)
-		store.remove(vmName)
-		store.logger.Info("PTY session ended", "vm", vmName)
+		store.remove(key)
+		store.logger.Info("PTY session ended", "vm", vmName, "session", sessionID)
 	}()
 
 	return sess, nil

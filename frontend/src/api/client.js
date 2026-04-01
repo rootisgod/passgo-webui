@@ -101,6 +101,11 @@ export async function downloadFile(vmName, remotePath) {
   URL.revokeObjectURL(url)
 }
 
+// Shell sessions
+export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
+export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)
+export const deleteShellSession = (vmName, sessionId) => request('DELETE', `/vms/${vmName}/shell/sessions/${sessionId}`)
+
 // Auth
 export const login = (username, password) => request('POST', '/auth/login', { username, password })
 export const logout = () => request('POST', '/auth/logout')

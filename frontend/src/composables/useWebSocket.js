@@ -1,20 +1,20 @@
 import { ref } from 'vue'
 
-export function useWebSocket(vmName) {
+export function useWebSocket() {
   const connected = ref(false)
   const error = ref(null)
   let ws = null
 
-  function getWsUrl(name) {
+  function getWsUrl(name, sessionId) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${proto}//${location.host}/api/v1/vms/${name}/shell`
+    return `${proto}//${location.host}/api/v1/vms/${name}/shell/${sessionId}`
   }
 
-  function connect(name, onData) {
+  function connect(name, sessionId, onData) {
     disconnect()
     error.value = null
 
-    const url = getWsUrl(name || vmName)
+    const url = getWsUrl(name, sessionId)
     ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
 
