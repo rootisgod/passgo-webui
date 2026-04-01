@@ -11,6 +11,8 @@ type Config struct {
 	Listen        string `json:"listen"`
 	CloudInitDir  string `json:"cloud_init_dir"`
 	CloudInitRepo string `json:"cloud_init_repo"`
+	Username      string `json:"username"`
+	Password      string `json:"password"`
 }
 
 func DefaultConfigPath() string {
@@ -38,6 +40,12 @@ func Load(path string) (*Config, error) {
 			cfg.CloudInitDir = filepath.Join(home, ".passgo-web", "cloud-init")
 		}
 	}
+	if cfg.Username == "" {
+		cfg.Username = "admin"
+	}
+	if cfg.Password == "" {
+		cfg.Password = "admin"
+	}
 	return &cfg, nil
 }
 
@@ -60,6 +68,8 @@ func CreateDefault(path string) (*Config, error) {
 	cfg := &Config{
 		Listen:       ":8080",
 		CloudInitDir: cloudInitDir,
+		Username:     "admin",
+		Password:     "admin",
 	}
 	if err := cfg.Save(path); err != nil {
 		return nil, err

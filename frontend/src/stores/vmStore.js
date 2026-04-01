@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, dismissLaunch } from '../api/client.js'
+import { listVMs, listLaunches, dismissLaunch, ApiError } from '../api/client.js'
 
 export const useVmStore = defineStore('vms', {
   state: () => ({
+    authenticated: false,
     vms: [],
     launches: [],  // in-progress or recently-failed launches
     selectedNode: null,  // null = host, string = VM name
@@ -50,6 +51,10 @@ export const useVmStore = defineStore('vms', {
         this.launches = launches
         this.lastRefresh = new Date()
       } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          this.authenticated = false
+          return
+        }
         this.error = err.message
       } finally {
         this.loading = false

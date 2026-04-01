@@ -32,11 +32,15 @@ func main() {
 		port       int
 		configPath string
 		showVer    bool
+		username   string
+		password   string
 	)
 
 	flag.IntVar(&port, "port", 0, "Listen port (overrides config)")
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath(), "Config file path")
 	flag.BoolVar(&showVer, "version", false, "Print version and exit")
+	flag.StringVar(&username, "username", "", "Login username (overrides config)")
+	flag.StringVar(&password, "password", "", "Login password (overrides config)")
 	flag.Parse()
 
 	if showVer {
@@ -62,9 +66,15 @@ func main() {
 		fmt.Printf("Config: %s\n", configPath)
 	}
 
-	// Override port from flag
+	// Override from flags
 	if port > 0 {
 		cfg.Listen = fmt.Sprintf(":%d", port)
+	}
+	if username != "" {
+		cfg.Username = username
+	}
+	if password != "" {
+		cfg.Password = password
 	}
 
 	// Create multipass client

@@ -66,4 +66,8 @@ export const updateCloudInitTemplate = (name, content) => request('PUT', `/cloud
 export const deleteCloudInitTemplate = (name) => request('DELETE', `/cloud-init/templates/${encodeURIComponent(name)}`)
 export const getVersion = () => request('GET', '/version')
 
+// Auth
+export const login = (username, password) => request('POST', '/auth/login', { username, password })
+export const logout = () => request('POST', '/auth/logout')
+
 export { ApiError }

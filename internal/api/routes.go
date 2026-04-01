@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
@@ -18,6 +19,7 @@ type Server struct {
 	gitCommit          string
 	builtinTemplatesFS embed.FS
 	launches           *launchTracker
+	sessions           *sessionStore
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -30,11 +32,16 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		gitCommit:          gitCommit,
 		builtinTemplatesFS: builtinTemplatesFS,
 		launches:           newLaunchTracker(),
+		sessions:           newSessionStore(24 * time.Hour),
 	}
 }
 
 func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux := http.NewServeMux()
+
+	// Auth
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 
 	// API routes
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
@@ -85,6 +92,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 
 	// Apply global middleware
 	var handler http.Handler = mux
+	handler = authMiddleware(s.sessions, handler)
 	handler = corsMiddleware(handler)
 	handler = loggingMiddleware(s.logger, handler)
 
