@@ -47,6 +47,15 @@ func (s *Server) handleListCloudInitTemplates(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, templates)
 }
 
+func (s *Server) handleFindImages(w http.ResponseWriter, r *http.Request) {
+	images, err := s.mp.FindImages()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, images)
+}
+
 type versionResponse struct {
 	Version   string `json:"version"`
 	BuildTime string `json:"build_time"`

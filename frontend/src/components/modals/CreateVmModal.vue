@@ -10,7 +10,7 @@ const store = useVmStore()
 const toasts = useToastStore()
 
 const name = ref('')
-const release = ref('24.04')
+const release = ref('')
 const cpus = ref(2)
 const memoryMB = ref(1024)
 const diskGB = ref(8)
@@ -18,14 +18,23 @@ const cloudInit = ref('')
 const network = ref('')
 const submitting = ref(false)
 
-const releases = ['24.04', '22.04', '20.04', '18.04', 'daily']
+const images = ref([])
+const loadingImages = ref(true)
 const networks = ref([])
 const templates = ref([])
 
 const placeholder = ref('VM-????')
 
+const imageList = computed(() => images.value.filter(i => i.type === 'image'))
+const blueprintList = computed(() => images.value.filter(i => i.type === 'blueprint'))
 const userTemplates = computed(() => templates.value.filter(t => !t.builtIn))
 const builtInTemplates = computed(() => templates.value.filter(t => t.builtIn))
+
+function imageLabel(img) {
+  const aliases = img.aliases?.length ? ` (${img.aliases.join(', ')})` : ''
+  if (img.type === 'blueprint') return `${img.name} — ${img.release}`
+  return `${img.name} — ${img.os} ${img.release}${aliases}`
+}
 
 onMounted(async () => {
   // Generate placeholder name
@@ -34,15 +43,23 @@ onMounted(async () => {
   for (let i = 0; i < 4; i++) rand += chars[Math.floor(Math.random() * chars.length)]
   placeholder.value = 'VM-' + rand
 
-  // Load networks and templates in parallel
+  // Load images, networks, and templates in parallel
   try {
-    const [nets, tmpls] = await Promise.all([
+    const [imgs, nets, tmpls] = await Promise.all([
+      api.listImages().catch(() => []),
       api.listNetworks().catch(() => []),
       api.listCloudInitTemplates().catch(() => []),
     ])
+    images.value = Array.isArray(imgs) ? imgs : []
     networks.value = Array.isArray(nets) ? nets : []
     templates.value = Array.isArray(tmpls) ? tmpls : []
+    // Default to first image (usually latest LTS)
+    if (images.value.length && !release.value) {
+      const lts = images.value.find(i => i.aliases?.includes('lts'))
+      release.value = lts ? lts.name : images.value[0].name
+    }
   } catch { /* ignore */ }
+  loadingImages.value = false
 })
 
 async function submit() {
@@ -93,14 +110,21 @@ async function submit() {
             <p class="text-xs text-[var(--text-secondary)] mt-1">Leave empty for auto-generated name</p>
           </div>
 
-          <!-- Release -->
+          <!-- Image -->
           <div>
-            <label class="block text-xs text-[var(--text-secondary)] mb-1">Ubuntu Release</label>
+            <label class="block text-xs text-[var(--text-secondary)] mb-1">Image</label>
             <select
               v-model="release"
-              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+              :disabled="loadingImages"
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50"
             >
-              <option v-for="r in releases" :key="r" :value="r">{{ r }}</option>
+              <option v-if="loadingImages" value="" disabled>Loading images...</option>
+              <optgroup v-if="imageList.length" label="Images">
+                <option v-for="img in imageList" :key="img.name" :value="img.name">{{ imageLabel(img) }}</option>
+              </optgroup>
+              <optgroup v-if="blueprintList.length" label="Blueprints (Deprecating Soon...)">
+                <option v-for="img in blueprintList" :key="img.name" :value="img.name">{{ imageLabel(img) }}</option>
+              </optgroup>
             </select>
           </div>
 

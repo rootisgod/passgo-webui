@@ -75,6 +75,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/vms/{name}/mounts", s.handleRemoveMount)
 
 	// System
+	mux.HandleFunc("GET /api/v1/images", s.handleFindImages)
 	mux.HandleFunc("GET /api/v1/networks", s.handleListNetworks)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates", s.handleListCloudInitTemplates)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates/{name}", s.handleGetCloudInitTemplate)

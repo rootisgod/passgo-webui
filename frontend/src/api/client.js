@@ -58,6 +58,7 @@ export const addMount = (vmName, source, target) => request('POST', `/vms/${vmNa
 export const removeMount = (vmName, target) => request('DELETE', `/vms/${vmName}/mounts`, { target })
 
 // System
+export const listImages = () => request('GET', '/images')
 export const listNetworks = () => request('GET', '/networks')
 export const listCloudInitTemplates = () => request('GET', '/cloud-init/templates')
 export const getCloudInitTemplate = (name) => request('GET', `/cloud-init/templates/${encodeURIComponent(name)}`)

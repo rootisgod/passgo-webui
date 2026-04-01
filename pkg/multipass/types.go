@@ -47,6 +47,32 @@ type TemplateOption struct {
 	BuiltIn bool   `json:"builtIn,omitempty"`
 }
 
+// ImageInfo represents an available image or blueprint from multipass find.
+type ImageInfo struct {
+	Name    string   `json:"name"`
+	Aliases []string `json:"aliases"`
+	OS      string   `json:"os"`
+	Release string   `json:"release"`
+	Remote  string   `json:"remote"`
+	Version string   `json:"version"`
+	Type    string   `json:"type"` // "image" or "blueprint"
+}
+
+// findJSONResponse is the response from multipass find --format json.
+type findJSONResponse struct {
+	Images     map[string]findJSONImage `json:"images"`
+	Blueprints map[string]findJSONImage `json:"blueprints (deprecated)"`
+	Errors     []string                 `json:"errors"`
+}
+
+type findJSONImage struct {
+	Aliases []string `json:"aliases"`
+	OS      string   `json:"os"`
+	Release string   `json:"release"`
+	Remote  string   `json:"remote"`
+	Version string   `json:"version"`
+}
+
 // --- JSON parsing types for multipass info --format json ---
 
 type infoJSONResponse struct {
