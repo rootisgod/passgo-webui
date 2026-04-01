@@ -1,11 +1,22 @@
 <script setup>
 import { useVmStore } from '../../stores/vmStore.js'
+import { useToastStore } from '../../stores/toastStore.js'
+import * as api from '../../api/client.js'
 import StatusDot from '../shared/StatusDot.vue'
-import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import ContextMenu from '../shared/ContextMenu.vue'
+import ConfirmModal from '../modals/ConfirmModal.vue'
+import CloneVmModal from '../modals/CloneVmModal.vue'
+import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw } from 'lucide-vue-next'
+import { ref, markRaw } from 'vue'
 
 const store = useVmStore()
+const toasts = useToastStore()
 const expanded = ref(true)
+
+// Context menu state
+const contextMenu = ref(null) // { x, y, items }
+const confirmAction = ref(null)
+const cloneVmName = ref(null)
 
 function selectHost() {
   store.selectNode(null)
@@ -14,10 +25,64 @@ function selectHost() {
 function selectVM(name) {
   store.selectNode(name)
 }
+
+async function action(fn, msg) {
+  try {
+    await fn()
+    toasts.success(msg)
+    store.fetchVMs()
+  } catch (e) { toasts.error(e.message) }
+}
+
+function openContextMenu(event, vm) {
+  store.selectNode(vm.name)
+  const isRunning = vm.state === 'Running'
+  const isStopped = vm.state === 'Stopped'
+  const isSuspended = vm.state === 'Suspended'
+  const isDeleted = vm.state === 'Deleted'
+
+  const items = []
+
+  if (!isRunning) {
+    items.push({ label: 'Start', icon: markRaw(Play), action: () => action(() => api.startVM(vm.name), `${vm.name} started`) })
+  }
+  if (isRunning || isSuspended) {
+    items.push({ label: 'Stop', icon: markRaw(Square), action: () => action(() => api.stopVM(vm.name), `${vm.name} stopped`) })
+  }
+  if (isRunning) {
+    items.push({ label: 'Suspend', icon: markRaw(Pause), action: () => action(() => api.suspendVM(vm.name), `${vm.name} suspended`) })
+  }
+  if (isStopped) {
+    items.push({ label: 'Clone', icon: markRaw(Copy), action: () => { cloneVmName.value = vm.name } })
+  }
+  if (isDeleted) {
+    items.push({ label: 'Recover', icon: markRaw(RotateCcw), action: () => action(() => api.recoverVM(vm.name), `${vm.name} recovered`) })
+  }
+  if (!isDeleted) {
+    items.push({ separator: true })
+    items.push({
+      label: 'Delete', icon: markRaw(Trash2), variant: 'danger',
+      action: () => {
+        confirmAction.value = {
+          message: `Delete VM '${vm.name}'?`,
+          fn: () => action(() => api.deleteVM(vm.name), `${vm.name} deleted`),
+        }
+      },
+    })
+  }
+
+  contextMenu.value = { x: event.clientX, y: event.clientY, items }
+}
+
+async function executeConfirmed() {
+  const fn = confirmAction.value?.fn
+  confirmAction.value = null
+  if (fn) await fn()
+}
 </script>
 
 <template>
-  <aside class="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] overflow-y-auto flex-shrink-0">
+  <aside class="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] overflow-y-auto flex-shrink-0 select-none">
     <div class="p-2">
       <!-- Cloud-Init -->
       <div
@@ -68,6 +133,7 @@ function selectVM(name) {
           class="flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors text-sm"
           :class="store.selectedNode === vm.name ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
           @click="selectVM(vm.name)"
+          @contextmenu.prevent="openContextMenu($event, vm)"
         >
           <StatusDot :state="vm.state" />
           <span class="truncate">{{ vm.name }}</span>
@@ -78,5 +144,27 @@ function selectVM(name) {
         No VMs
       </div>
     </div>
+
+    <ContextMenu
+      v-if="contextMenu"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu = null"
+    />
+
+    <ConfirmModal
+      v-if="confirmAction"
+      :message="confirmAction.message"
+      @confirm="executeConfirmed"
+      @cancel="confirmAction = null"
+    />
+
+    <CloneVmModal
+      v-if="cloneVmName"
+      :vm-name="cloneVmName"
+      @close="cloneVmName = null"
+      @cloned="cloneVmName = null"
+    />
   </aside>
 </template>
