@@ -125,7 +125,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Response helpers: `writeJSON(w, status, v)`, `writeError(w, status, msg)`, `writeMessage(w, msg)` in `responses.go`
 - Path parameters via Go 1.22+ `r.PathValue("name")`
 - File safety: all user-facing file operations validate with `sanitizeTemplateName()` (regex + filepath.Rel check)
-- Long-running operations (VM launch) run in goroutines with in-memory status tracking
+- Long-running operations (VM launch, clone) run in goroutines with in-memory status tracking via launchTracker
 - Embedded assets use `//go:embed` in `cmd/server/main.go` and are passed to `api.NewServer()`
 
 ### Frontend (Vue 3)
@@ -137,6 +137,11 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - CodeMirror components must render outside Vue `<Transition>` to avoid DOM conflicts
 - Icons from `lucide-vue-next`, passed as raw components to ActionButton via `markRaw()`
 - Polling via `usePolling` composable (3s interval, pauses when tab hidden)
+- Metrics history buffered in `useMetricsHistory.js` (reactive store, recorded on each poll)
+- Sparkline component (`Sparkline.vue`) uses SVG viewBox for responsive width
+- Context menu (`ContextMenu.vue`) is reusable: positioned dropdown with click-outside/Escape close
+- Multi-VM selection via `selectedVms` array in vmStore, bulk actions use `Promise.allSettled`
+- Tabs that run `multipass exec` (Files) must guard against stopped VMs to prevent auto-start
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
@@ -145,7 +150,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 ### API Endpoints
 ```
 Auth (public):     POST /auth/login, /auth/logout, GET /version
-VMs (protected):   GET/POST /vms, GET /vms/{name}, POST /vms/{name}/start|stop|suspend|recover
+VMs (protected):   GET/POST /vms, GET /vms/{name}, POST /vms/{name}/start|stop|suspend|recover|clone
                    DELETE /vms/{name}, POST /vms/start-all|stop-all|purge, POST /vms/{name}/exec
                    GET /vms/{name}/cloud-init/status
 Snapshots:         GET/POST /vms/{name}/snapshots, POST .../restore, DELETE .../{snap}
@@ -162,16 +167,20 @@ Shell:             WS /vms/{name}/shell
 App.vue
 ├── LoginPage.vue
 ├── AppHeader.vue
-├── TreeSidebar.vue (host node, Cloud-Init node, VM list with launching indicators)
+├── TreeSidebar.vue (host node, Cloud-Init node, VM list, context menu, multi-select + bulk actions)
+│   ├── ContextMenu.vue (reusable right-click menu)
+│   ├── CloneVmModal.vue
+│   └── ConfirmModal.vue
 ├── CloudInitPanel.vue (outside Transition — CodeMirror conflict)
-│   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter)
+│   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue
 ├── VmDetailPanel.vue (tabbed)
-│   ├── VmSummaryTab.vue + CloudInitStatus.vue (live polling)
-│   ├── VmConsoleTab.vue (xterm.js + WebSocket)
-│   ├── VmSnapshotsTab.vue
+│   ├── VmSummaryTab.vue + CloudInitStatus.vue + Sparkline.vue (resource timeline graphs)
+│   ├── VmConsoleTab.vue (xterm.js + WebSocket, power-on guard)
+│   ├── VmSnapshotsTab.vue (clone from snapshot support)
 │   ├── VmMountsTab.vue
+│   ├── VmTransferTab.vue (file browser, power-on guard)
 │   └── VmConfigTab.vue
 ├── StatusBar.vue
 └── Toast.vue
