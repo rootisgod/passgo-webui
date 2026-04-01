@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, dismissLaunch, ApiError } from '../api/client.js'
+import { listVMs, listLaunches, listGroups, dismissLaunch, ApiError } from '../api/client.js'
 import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
@@ -13,6 +13,10 @@ export const useVmStore = defineStore('vms', {
     loading: false,
     error: null,
     hostname: 'localhost',
+    // Groups
+    groups: [],           // ordered list of group names
+    vmGroups: {},         // {vmName: groupName}
+    expandedGroups: {},   // {groupName: bool} local UI state
   }),
 
   getters: {
@@ -30,9 +34,23 @@ export const useVmStore = defineStore('vms', {
     launchingCount() { return this.activeLaunches.length },
     failedLaunches: (state) => state.launches.filter(l => l.status === 'failed'),
     selectedVmObjects: (state) => state.vms.filter(vm => state.selectedVms.includes(vm.name)),
+    ungroupedVms: (state) => state.vms.filter(vm => !state.vmGroups[vm.name]),
   },
 
   actions: {
+    groupedVms(groupName) {
+      return this.vms.filter(vm => this.vmGroups[vm.name] === groupName)
+    },
+
+    groupSummary(groupName) {
+      const vms = this.groupedVms(groupName)
+      return {
+        running: vms.filter(v => v.state === 'Running').length,
+        stopped: vms.filter(v => v.state === 'Stopped').length,
+        total: vms.length,
+      }
+    },
+
     async fetchVMs() {
       try {
         this.loading = true
@@ -64,6 +82,9 @@ export const useVmStore = defineStore('vms', {
             recordMetrics(vm.name, { cpu: cpuLoad, memory: memPct, disk: diskPct })
           }
         }
+
+        // Refresh groups alongside VMs
+        await this.fetchGroups()
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           this.authenticated = false
@@ -72,6 +93,16 @@ export const useVmStore = defineStore('vms', {
         this.error = err.message
       } finally {
         this.loading = false
+      }
+    },
+
+    async fetchGroups() {
+      try {
+        const data = await listGroups()
+        this.groups = data.groups || []
+        this.vmGroups = data.vmGroups || {}
+      } catch {
+        // Non-critical — keep existing state
       }
     },
 
@@ -101,6 +132,10 @@ export const useVmStore = defineStore('vms', {
 
     clearSelection() {
       this.selectedVms = []
+    },
+
+    toggleGroupExpanded(name) {
+      this.expandedGroups[name] = !this.expandedGroups[name]
     },
   },
 })

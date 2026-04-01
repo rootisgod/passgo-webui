@@ -6,7 +6,9 @@ import StatusDot from '../shared/StatusDot.vue'
 import ContextMenu from '../shared/ContextMenu.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
-import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Square as SquareIcon } from 'lucide-vue-next'
+import GroupNameModal from '../modals/GroupNameModal.vue'
+import MoveToGroupModal from '../modals/MoveToGroupModal.vue'
+import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Folder, FolderOpen, FolderPlus, Pencil, ArrowRight, Plus } from 'lucide-vue-next'
 import { ref, computed, markRaw } from 'vue'
 
 const store = useVmStore()
@@ -15,9 +17,13 @@ const expanded = ref(true)
 const selectionMode = ref(false)
 
 // Context menu state
-const contextMenu = ref(null) // { x, y, items }
+const contextMenu = ref(null)
 const confirmAction = ref(null)
 const cloneVmName = ref(null)
+
+// Group modals
+const groupModal = ref(null) // { mode, initialName, onConfirm }
+const moveToGroupVm = ref(null) // vm name
 
 // Bulk selection
 const hasSelectedStopped = computed(() => store.selectedVmObjects.some(vm => vm.state === 'Stopped' || vm.state === 'Suspended'))
@@ -83,6 +89,18 @@ async function action(fn, msg) {
   } catch (e) { toasts.error(e.message) }
 }
 
+// Group summary badge
+function groupBadge(groupName) {
+  const s = store.groupSummary(groupName)
+  if (s.total === 0) return ''
+  const parts = []
+  if (s.running) parts.push(`${s.running}R`)
+  if (s.stopped) parts.push(`${s.stopped}S`)
+  if (s.total - s.running - s.stopped > 0) parts.push(`${s.total - s.running - s.stopped}O`)
+  return parts.join(' ')
+}
+
+// VM context menu
 function openContextMenu(event, vm) {
   store.selectNode(vm.name)
   const isRunning = vm.state === 'Running'
@@ -107,8 +125,15 @@ function openContextMenu(event, vm) {
   if (isDeleted) {
     items.push({ label: 'Recover', icon: markRaw(RotateCcw), action: () => action(() => api.recoverVM(vm.name), `${vm.name} recovered`) })
   }
-  if (!isDeleted) {
+
+  // Move to group
+  if (!isDeleted && store.groups.length > 0) {
     items.push({ separator: true })
+    items.push({ label: 'Move to Group...', icon: markRaw(ArrowRight), action: () => { moveToGroupVm.value = vm.name } })
+  }
+
+  if (!isDeleted) {
+    if (store.groups.length === 0) items.push({ separator: true })
     items.push({
       label: 'Delete', icon: markRaw(Trash2), variant: 'danger',
       action: () => {
@@ -121,6 +146,135 @@ function openContextMenu(event, vm) {
   }
 
   contextMenu.value = { x: event.clientX, y: event.clientY, items }
+}
+
+// Group context menu
+function openGroupContextMenu(event, groupName) {
+  event.preventDefault()
+  const groupVms = store.groupedVms(groupName)
+  const hasRunning = groupVms.some(vm => vm.state === 'Running' || vm.state === 'Suspended')
+  const hasStopped = groupVms.some(vm => vm.state === 'Stopped' || vm.state === 'Suspended')
+
+  const items = []
+  if (hasStopped) {
+    items.push({
+      label: 'Start All', icon: markRaw(Play),
+      action: async () => {
+        const stopped = groupVms.filter(vm => vm.state === 'Stopped' || vm.state === 'Suspended')
+        const results = await Promise.allSettled(stopped.map(vm => api.startVM(vm.name)))
+        const failed = results.filter(r => r.status === 'rejected')
+        if (failed.length) toasts.error(`${failed.length} failed to start`)
+        else toasts.success(`Started ${stopped.length} VMs in ${groupName}`)
+        store.fetchVMs()
+      },
+    })
+  }
+  if (hasRunning) {
+    items.push({
+      label: 'Stop All', icon: markRaw(Square),
+      action: async () => {
+        const running = groupVms.filter(vm => vm.state === 'Running' || vm.state === 'Suspended')
+        const results = await Promise.allSettled(running.map(vm => api.stopVM(vm.name)))
+        const failed = results.filter(r => r.status === 'rejected')
+        if (failed.length) toasts.error(`${failed.length} failed to stop`)
+        else toasts.success(`Stopped ${running.length} VMs in ${groupName}`)
+        store.fetchVMs()
+      },
+    })
+  }
+  if (groupVms.length > 0) {
+    items.push({
+      label: 'Delete All VMs', icon: markRaw(Trash2), variant: 'danger',
+      action: () => {
+        const count = groupVms.length
+        confirmAction.value = {
+          message: `Delete all ${count} VM${count !== 1 ? 's' : ''} in "${groupName}"?`,
+          fn: async () => {
+            const results = await Promise.allSettled(groupVms.map(vm => api.deleteVM(vm.name)))
+            const failed = results.filter(r => r.status === 'rejected')
+            if (failed.length) toasts.error(`${failed.length} failed to delete`)
+            else toasts.success(`Deleted ${count} VMs in ${groupName}`)
+            store.fetchVMs()
+          },
+        }
+      },
+    })
+  }
+  if (items.length > 0) items.push({ separator: true })
+  items.push({
+    label: 'Rename Group', icon: markRaw(Pencil),
+    action: () => {
+      groupModal.value = {
+        mode: 'rename',
+        initialName: groupName,
+        onConfirm: async (newName) => {
+          try {
+            await api.renameGroup(groupName, newName)
+            toasts.success(`Group renamed to "${newName}"`)
+            store.fetchGroups()
+          } catch (e) { toasts.error(e.message) }
+        },
+      }
+    },
+  })
+  items.push({
+    label: 'Delete Group', icon: markRaw(Trash2), variant: 'danger',
+    action: () => {
+      confirmAction.value = {
+        message: `Delete group "${groupName}"? VMs will become ungrouped.`,
+        fn: async () => {
+          try {
+            await api.deleteGroup(groupName)
+            toasts.success(`Group "${groupName}" deleted`)
+            store.fetchGroups()
+          } catch (e) { toasts.error(e.message) }
+        },
+      }
+    },
+  })
+
+  contextMenu.value = { x: event.clientX, y: event.clientY, items }
+}
+
+// Host context menu (for creating groups)
+function openHostContextMenu(event) {
+  contextMenu.value = {
+    x: event.clientX,
+    y: event.clientY,
+    items: [{
+      label: 'New Group', icon: markRaw(FolderPlus),
+      action: () => {
+        groupModal.value = {
+          mode: 'create',
+          initialName: '',
+          onConfirm: async (name) => {
+            try {
+              await api.createGroup(name)
+              toasts.success(`Group "${name}" created`)
+              store.expandedGroups[name] = true
+              store.fetchGroups()
+            } catch (e) { toasts.error(e.message) }
+          },
+        }
+      },
+    }],
+  }
+}
+
+async function handleMoveToGroup(groupName) {
+  const vmName = moveToGroupVm.value
+  moveToGroupVm.value = null
+  try {
+    await api.assignVmGroup(vmName, groupName)
+    toasts.success(groupName ? `Moved "${vmName}" to "${groupName}"` : `"${vmName}" ungrouped`)
+    store.fetchGroups()
+  } catch (e) { toasts.error(e.message) }
+}
+
+function handleGroupModalConfirm(name) {
+  const fn = groupModal.value?.onConfirm
+  groupModal.value = null
+  if (fn) fn(name)
 }
 
 async function executeConfirmed() {
@@ -150,6 +304,7 @@ async function executeConfirmed() {
         class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors"
         :class="store.selectedNode === null ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)]'"
         @click="selectHost"
+        @contextmenu.prevent="openHostContextMenu"
       >
         <button
           class="w-4 h-4 flex items-center justify-center"
@@ -181,7 +336,7 @@ async function executeConfirmed() {
         </button>
       </div>
 
-      <!-- Launching VMs (only shown if not yet in the real VM list) -->
+      <!-- Launching VMs -->
       <div v-show="expanded" class="ml-4">
         <div
           v-for="launch in store.activeLaunches"
@@ -193,27 +348,79 @@ async function executeConfirmed() {
         </div>
       </div>
 
-      <!-- VM nodes -->
-      <TransitionGroup name="list" tag="div" v-show="expanded" class="ml-4">
-        <div
-          v-for="vm in store.vms"
-          :key="vm.name"
-          class="flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors text-sm"
-          :class="store.selectedNode === vm.name ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
-          @click="selectVM(vm.name)"
-          @contextmenu.prevent="openContextMenu($event, vm)"
+      <div v-show="expanded" class="ml-4">
+        <!-- New Group button -->
+        <button
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors w-full"
+          @click="groupModal = { mode: 'create', initialName: '', onConfirm: async (name) => { try { await api.createGroup(name); toasts.success(`Group '${name}' created`); store.expandedGroups[name] = true; store.fetchGroups() } catch(e) { toasts.error(e.message) } } }"
         >
-          <input
-            v-if="selectionMode"
-            type="checkbox"
-            :checked="store.selectedVms.includes(vm.name)"
-            class="w-3.5 h-3.5 rounded border-[var(--border)] bg-[var(--bg-primary)] text-[var(--accent)] focus:ring-0 focus:ring-offset-0 cursor-pointer flex-shrink-0"
-            @click.stop="store.toggleVmSelection(vm.name)"
-          />
-          <StatusDot :state="vm.state" />
-          <span class="truncate">{{ vm.name }}</span>
+          <Plus class="w-3 h-3" />
+          <span>New Group</span>
+        </button>
+
+        <!-- Group folders -->
+        <div v-for="group in store.groups" :key="'group-' + group">
+          <!-- Group header -->
+          <div
+            class="flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
+            @click="store.toggleGroupExpanded(group)"
+            @contextmenu.prevent="openGroupContextMenu($event, group)"
+          >
+            <ChevronDown v-if="store.expandedGroups[group]" class="w-3 h-3 flex-shrink-0" />
+            <ChevronRight v-else class="w-3 h-3 flex-shrink-0" />
+            <FolderOpen v-if="store.expandedGroups[group]" class="w-3.5 h-3.5 flex-shrink-0" />
+            <Folder v-else class="w-3.5 h-3.5 flex-shrink-0" />
+            <span class="text-sm truncate flex-1">{{ group }}</span>
+            <span class="text-[10px] text-[var(--muted)] whitespace-nowrap">{{ groupBadge(group) }}</span>
+          </div>
+          <!-- VMs in group -->
+          <div v-show="store.expandedGroups[group]" class="ml-4">
+            <div
+              v-for="vm in store.groupedVms(group)"
+              :key="vm.name"
+              class="flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors text-sm"
+              :class="store.selectedNode === vm.name ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
+              @click="selectVM(vm.name)"
+              @contextmenu.prevent="openContextMenu($event, vm)"
+            >
+              <input
+                v-if="selectionMode"
+                type="checkbox"
+                :checked="store.selectedVms.includes(vm.name)"
+                class="w-3.5 h-3.5 rounded border-[var(--border)] bg-[var(--bg-primary)] text-[var(--accent)] focus:ring-0 focus:ring-offset-0 cursor-pointer flex-shrink-0"
+                @click.stop="store.toggleVmSelection(vm.name)"
+              />
+              <StatusDot :state="vm.state" />
+              <span class="truncate">{{ vm.name }}</span>
+            </div>
+            <div v-if="store.groupedVms(group).length === 0" class="px-2 py-1 text-xs text-[var(--muted)] italic">
+              Empty
+            </div>
+          </div>
         </div>
-      </TransitionGroup>
+
+        <!-- Ungrouped VMs -->
+        <TransitionGroup name="list" tag="div">
+          <div
+            v-for="vm in store.ungroupedVms"
+            :key="vm.name"
+            class="flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors text-sm"
+            :class="store.selectedNode === vm.name ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
+            @click="selectVM(vm.name)"
+            @contextmenu.prevent="openContextMenu($event, vm)"
+          >
+            <input
+              v-if="selectionMode"
+              type="checkbox"
+              :checked="store.selectedVms.includes(vm.name)"
+              class="w-3.5 h-3.5 rounded border-[var(--border)] bg-[var(--bg-primary)] text-[var(--accent)] focus:ring-0 focus:ring-offset-0 cursor-pointer flex-shrink-0"
+              @click.stop="store.toggleVmSelection(vm.name)"
+            />
+            <StatusDot :state="vm.state" />
+            <span class="truncate">{{ vm.name }}</span>
+          </div>
+        </TransitionGroup>
+      </div>
 
       <div v-if="store.vms.length === 0 && store.launchingCount === 0 && expanded" class="ml-8 py-2 text-xs text-[var(--text-secondary)]">
         No VMs
@@ -240,6 +447,22 @@ async function executeConfirmed() {
       :vm-name="cloneVmName"
       @close="cloneVmName = null"
       @cloned="cloneVmName = null"
+    />
+
+    <GroupNameModal
+      v-if="groupModal"
+      :mode="groupModal.mode"
+      :initial-name="groupModal.initialName"
+      @confirm="handleGroupModalConfirm"
+      @cancel="groupModal = null"
+    />
+
+    <MoveToGroupModal
+      v-if="moveToGroupVm"
+      :vm-name="moveToGroupVm"
+      :current-group="store.vmGroups[moveToGroupVm] || ''"
+      @confirm="handleMoveToGroup"
+      @cancel="moveToGroupVm = null"
     />
 
     <!-- Bulk action bar -->

@@ -101,6 +101,14 @@ export async function downloadFile(vmName, remotePath) {
   URL.revokeObjectURL(url)
 }
 
+// Groups
+export const listGroups = () => request('GET', '/groups')
+export const createGroup = (name) => request('POST', '/groups', { name })
+export const renameGroup = (name, newName) => request('PUT', `/groups/${encodeURIComponent(name)}`, { name: newName })
+export const deleteGroup = (name) => request('DELETE', `/groups/${encodeURIComponent(name)}`)
+export const assignVmGroup = (vm, group) => request('PUT', '/groups/assign', { vm, group })
+export const reorderGroups = (groups) => request('PUT', '/groups/reorder', { groups })
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

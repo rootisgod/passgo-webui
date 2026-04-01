@@ -8,11 +8,13 @@ import (
 )
 
 type Config struct {
-	Listen        string `json:"listen"`
-	CloudInitDir  string `json:"cloud_init_dir"`
-	CloudInitRepo string `json:"cloud_init_repo"`
-	Username      string `json:"username"`
-	Password      string `json:"password"`
+	Listen        string            `json:"listen"`
+	CloudInitDir  string            `json:"cloud_init_dir"`
+	CloudInitRepo string            `json:"cloud_init_repo"`
+	Username      string            `json:"username"`
+	Password      string            `json:"password"`
+	Groups        []string          `json:"groups,omitempty"`
+	VMGroups      map[string]string `json:"vm_groups,omitempty"`
 }
 
 func DefaultConfigPath() string {
@@ -45,6 +47,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Password == "" {
 		cfg.Password = "admin"
+	}
+	if cfg.Groups == nil {
+		cfg.Groups = []string{}
+	}
+	if cfg.VMGroups == nil {
+		cfg.VMGroups = make(map[string]string)
 	}
 	return &cfg, nil
 }

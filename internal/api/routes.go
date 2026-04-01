@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
@@ -21,6 +22,7 @@ type Server struct {
 	launches           *launchTracker
 	sessions           *sessionStore
 	ptySessions        *ptyStore
+	groupMu            sync.Mutex
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -95,6 +97,14 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/cloud-init/templates", s.handleCreateCloudInitTemplate)
 	mux.HandleFunc("PUT /api/v1/cloud-init/templates/{name}", s.handleUpdateCloudInitTemplate)
 	mux.HandleFunc("DELETE /api/v1/cloud-init/templates/{name}", s.handleDeleteCloudInitTemplate)
+
+	// VM Groups
+	mux.HandleFunc("GET /api/v1/groups", s.handleListGroups)
+	mux.HandleFunc("POST /api/v1/groups", s.handleCreateGroup)
+	mux.HandleFunc("PUT /api/v1/groups/assign", s.handleAssignVmGroup)
+	mux.HandleFunc("PUT /api/v1/groups/reorder", s.handleReorderGroups)
+	mux.HandleFunc("PUT /api/v1/groups/{name}", s.handleRenameGroup)
+	mux.HandleFunc("DELETE /api/v1/groups/{name}", s.handleDeleteGroup)
 
 	// Shell sessions
 	mux.HandleFunc("POST /api/v1/vms/{name}/shell/sessions", s.handleCreateShellSession)
