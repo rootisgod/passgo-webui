@@ -21,10 +21,73 @@ const editorRef = ref(null)
 let view = null
 let destroyed = false
 
+// Known cloud-init top-level keys and their expected types
+const CLOUD_INIT_KEYS = {
+  // Package management
+  packages: 'list', package_update: 'boolean', package_upgrade: 'boolean',
+  package_reboot_if_required: 'boolean', apt: 'object',
+  // Commands
+  runcmd: 'list', bootcmd: 'list',
+  // Files
+  write_files: 'list',
+  // Users & groups
+  users: 'list', groups: 'list',
+  // SSH
+  ssh_authorized_keys: 'list', ssh_keys: 'object', ssh_pwauth: 'boolean',
+  disable_root: 'boolean',
+  // System
+  hostname: 'string', fqdn: 'string', manage_etc_hosts: 'any',
+  timezone: 'string', locale: 'string', ntp: 'object',
+  // Disk
+  disk_setup: 'object', fs_setup: 'list', mounts: 'list',
+  swap: 'object', growpart: 'object',
+  // Network
+  network: 'object',
+  // Power
+  power_state: 'object',
+  // Final message / phone home
+  final_message: 'string', phone_home: 'object',
+  // Misc
+  chpasswd: 'object', snap: 'object', ca_certs: 'object',
+  resolv_conf: 'object', keyboard: 'object', locale_configfile: 'string',
+  manage_resolv_conf: 'boolean', preserve_hostname: 'boolean',
+  apt_sources: 'list', yum_repos: 'object', zypper: 'object',
+  chef: 'object', puppet: 'object', salt_minion: 'object', mcollective: 'object',
+  byobu_by_default: 'string', output: 'object', random_seed: 'object',
+  lxd: 'object', snap_commands: 'list',
+}
+
+function typeCheck(value, expected) {
+  if (expected === 'any') return true
+  if (expected === 'list') return Array.isArray(value)
+  if (expected === 'boolean') return typeof value === 'boolean'
+  if (expected === 'string') return typeof value === 'string'
+  if (expected === 'object') return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return true
+}
+
+function typeName(expected) {
+  if (expected === 'list') return 'a list'
+  if (expected === 'boolean') return 'true or false'
+  if (expected === 'string') return 'a string'
+  if (expected === 'object') return 'a mapping'
+  return expected
+}
+
+// Find the line number of a top-level key in the document
+function findKeyLine(doc, key) {
+  const pattern = new RegExp(`^${key}\\s*:`)
+  for (let i = 1; i <= doc.lines; i++) {
+    if (pattern.test(doc.line(i).text)) return i
+  }
+  return 1
+}
+
 function yamlLinter() {
   return linter((editorView) => {
     if (destroyed) return []
     const content = editorView.state.doc.toString()
+    const doc = editorView.state.doc
     const diagnostics = []
 
     // Check #cloud-config header
@@ -39,11 +102,12 @@ function yamlLinter() {
     }
 
     // Parse YAML
+    let parsed = null
     try {
-      YAML.load(content)
+      parsed = YAML.load(content)
     } catch (e) {
       if (e.mark) {
-        const pos = editorView.state.doc.line(Math.min(e.mark.line + 1, editorView.state.doc.lines))
+        const pos = doc.line(Math.min(e.mark.line + 1, doc.lines))
         diagnostics.push({
           from: pos.from,
           to: pos.to,
@@ -57,6 +121,33 @@ function yamlLinter() {
           severity: 'error',
           message: e.message,
         })
+      }
+    }
+
+    // Validate known keys and types if YAML parsed as an object
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const key of Object.keys(parsed)) {
+        const lineNum = findKeyLine(doc, key)
+        const line = doc.line(lineNum)
+
+        if (!(key in CLOUD_INIT_KEYS)) {
+          diagnostics.push({
+            from: line.from,
+            to: line.to,
+            severity: 'warning',
+            message: `Unknown cloud-init key: "${key}"`,
+          })
+        } else {
+          const expected = CLOUD_INIT_KEYS[key]
+          if (parsed[key] !== null && !typeCheck(parsed[key], expected)) {
+            diagnostics.push({
+              from: line.from,
+              to: line.to,
+              severity: 'warning',
+              message: `"${key}" should be ${typeName(expected)}`,
+            })
+          }
+        }
       }
     }
 
