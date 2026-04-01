@@ -29,7 +29,13 @@ export function useWebSocket(vmName) {
       }
     }
 
-    ws.onclose = () => { connected.value = false }
+    ws.onclose = (event) => {
+      connected.value = false
+      // 1001 = GoingAway: PTY process exited on the server
+      if (event.code === 1001) {
+        error.value = 'Shell process exited'
+      }
+    }
 
     ws.onerror = (e) => {
       error.value = 'Connection failed'

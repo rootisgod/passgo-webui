@@ -74,9 +74,7 @@ function initTerminal() {
 }
 
 function reconnect() {
-  if (term) {
-    term.clear()
-  }
+  // Don't clear — server replays scrollback on reconnect
   connect(store.selectedNode, (data) => {
     term.write(data)
   })

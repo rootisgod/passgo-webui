@@ -20,6 +20,7 @@ type Server struct {
 	builtinTemplatesFS embed.FS
 	launches           *launchTracker
 	sessions           *sessionStore
+	ptySessions        *ptyStore
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -33,7 +34,13 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		builtinTemplatesFS: builtinTemplatesFS,
 		launches:           newLaunchTracker(),
 		sessions:           newSessionStore(24 * time.Hour),
+		ptySessions:        newPtyStore(logger),
 	}
+}
+
+// Shutdown cleans up server resources including persistent PTY sessions.
+func (s *Server) Shutdown() {
+	s.ptySessions.shutdown()
 }
 
 func (s *Server) Handler(staticFS http.Handler) http.Handler {

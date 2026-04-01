@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/rootisgod/passgo-web/internal/api"
 	"github.com/rootisgod/passgo-web/internal/config"
@@ -101,6 +103,16 @@ func main() {
 	fmt.Printf("PassGo Web %s\n", Version)
 	fmt.Printf("Config: %s\n", configPath)
 	fmt.Printf("Listening on http://0.0.0.0%s\n", listen)
+
+	// Graceful shutdown: clean up PTY sessions on SIGINT/SIGTERM
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		logger.Info("shutting down...")
+		srv.Shutdown()
+		os.Exit(0)
+	}()
 
 	if err := http.ListenAndServe(listen, handler); err != nil {
 		logger.Error("server failed", "err", err)
