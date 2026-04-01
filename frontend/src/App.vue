@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useVmStore } from './stores/vmStore.js'
 import { usePolling } from './composables/usePolling.js'
 import { getVersion } from './api/client.js'
@@ -14,18 +14,22 @@ import CloudInitPanel from './components/cloudinit/CloudInitPanel.vue'
 import Toast from './components/shared/Toast.vue'
 
 const store = useVmStore()
+const checkingAuth = ref(true)
 
 onMounted(async () => {
   try {
     const ver = await getVersion()
     store.hostname = ver.hostname || 'localhost'
     await store.fetchVMs()
-    store.authenticated = true
-  } catch (e) {
-    // 401 means session expired or not logged in; anything else is server unreachable
-    if (e?.status === 401) {
-      store.authenticated = false
+    // fetchVMs catches 401 internally and sets authenticated=false,
+    // so only mark authenticated if the fetch actually succeeded
+    if (store.lastRefresh) {
+      store.authenticated = true
     }
+  } catch (e) {
+    store.authenticated = false
+  } finally {
+    checkingAuth.value = false
   }
 })
 
@@ -37,7 +41,10 @@ usePolling(() => {
 </script>
 
 <template>
-  <LoginPage v-if="!store.authenticated" />
+  <!-- Show nothing while checking auth -->
+  <div v-if="checkingAuth" />
+
+  <LoginPage v-else-if="!store.authenticated" />
 
   <template v-else>
     <Toast />
