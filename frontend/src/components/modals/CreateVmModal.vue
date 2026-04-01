@@ -185,10 +185,12 @@ async function submit() {
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
             >
               <option value="">Default (NAT)</option>
-              <option value="bridged">Bridged</option>
-              <option v-for="n in networks" :key="n.name" :value="n.name">
-                {{ n.name }} — {{ n.type }}{{ n.description ? ' (' + n.description + ')' : '' }}
-              </option>
+              <optgroup label="Bridged Networks">
+                <option value="bridged">Auto-detect</option>
+                <option v-for="n in networks" :key="n.name" :value="n.name">
+                  {{ n.name }} — {{ n.type }}{{ n.description ? ' (' + n.description + ')' : '' }}
+                </option>
+              </optgroup>
             </select>
           </div>
         </div>
