@@ -181,6 +181,17 @@ func (c *Client) LaunchVM(name, release string, cpus, memoryMB, diskGB int, clou
 	return name, err
 }
 
+// CloneVM creates an independent copy of a stopped VM.
+// If destName is empty, multipass auto-generates a name like <source>-clone1.
+func (c *Client) CloneVM(source, destName string) (string, error) {
+	args := []string{"clone", source}
+	if destName != "" {
+		args = append(args, "--name", destName)
+	}
+	_, err := c.run(args...)
+	return destName, err
+}
+
 // StartVM starts a stopped VM.
 func (c *Client) StartVM(name string) error {
 	_, err := c.run("start", name)

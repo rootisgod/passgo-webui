@@ -6,7 +6,8 @@ import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
 import CreateSnapshotModal from '../modals/CreateSnapshotModal.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import { Plus, RotateCcw, Trash2, AlertTriangle, GitBranch, CornerDownRight } from 'lucide-vue-next'
+import CloneVmModal from '../modals/CloneVmModal.vue'
+import { Plus, RotateCcw, Copy, Trash2, AlertTriangle, GitBranch, CornerDownRight } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -48,6 +49,7 @@ const snapshotTree = computed(() => {
   return result
 })
 const showCreateModal = ref(false)
+const cloneSnapshot = ref(null)
 const confirmAction = ref(null)
 
 const vm = computed(() => store.selectedVm)
@@ -153,6 +155,15 @@ onMounted(loadSnapshots)
             <RotateCcw class="w-4 h-4" />
           </button>
           <button
+            class="p-1 rounded hover:bg-[var(--accent)] transition-colors"
+            :disabled="isRunning"
+            :class="isRunning ? 'opacity-40 cursor-not-allowed' : ''"
+            title="Clone to this snapshot"
+            @click="cloneSnapshot = snap.name"
+          >
+            <Copy class="w-4 h-4" />
+          </button>
+          <button
             class="p-1 rounded hover:bg-[var(--danger)] transition-colors"
             :disabled="isRunning"
             :class="isRunning ? 'opacity-40 cursor-not-allowed' : ''"
@@ -180,6 +191,14 @@ onMounted(loadSnapshots)
       :message="confirmAction.message"
       @confirm="executeConfirmed"
       @cancel="confirmAction = null"
+    />
+
+    <CloneVmModal
+      v-if="cloneSnapshot"
+      :vm-name="store.selectedNode"
+      :snapshot-name="cloneSnapshot"
+      @close="cloneSnapshot = null"
+      @cloned="cloneSnapshot = null"
     />
   </div>
 </template>

@@ -58,6 +58,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/vms/start-all", s.handleStartAll)
 	mux.HandleFunc("POST /api/v1/vms/stop-all", s.handleStopAll)
 	mux.HandleFunc("POST /api/v1/vms/purge", s.handlePurge)
+	mux.HandleFunc("POST /api/v1/vms/{name}/clone", s.handleCloneVM)
 	mux.HandleFunc("POST /api/v1/vms/{name}/exec", s.handleExecInVM)
 	mux.HandleFunc("GET /api/v1/launches", s.handleListLaunches)
 	mux.HandleFunc("DELETE /api/v1/launches/{name}", s.handleDismissLaunch)

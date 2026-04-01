@@ -7,11 +7,13 @@ import ActionButton from '../shared/ActionButton.vue'
 import StatusDot from '../shared/StatusDot.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloudInitStatus from './CloudInitStatus.vue'
-import { Play, Square, Pause, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
+import CloneVmModal from '../modals/CloneVmModal.vue'
+import { Play, Square, Pause, Copy, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
 const confirmAction = ref(null)
+const showCloneModal = ref(false)
 
 const vm = computed(() => store.selectedVm)
 
@@ -189,6 +191,12 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
             @click="action(() => api.suspendVM(vm.name), `${vm.name} suspended`)"
           />
           <ActionButton
+            label="Clone"
+            :icon="Copy"
+            :disabled="!isStopped"
+            @click="showCloneModal = true"
+          />
+          <ActionButton
             label="Delete"
             :icon="Trash2"
             variant="danger"
@@ -217,6 +225,13 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
       :message="confirmAction.message"
       @confirm="executeConfirmed"
       @cancel="confirmAction = null"
+    />
+
+    <CloneVmModal
+      v-if="showCloneModal"
+      :vm-name="vm.name"
+      @close="showCloneModal = false"
+      @cloned="showCloneModal = false"
     />
   </div>
 </template>

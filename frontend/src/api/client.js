@@ -44,6 +44,7 @@ export const purgeDeleted = () => request('POST', '/vms/purge')
 export const execInVM = (name, command) => request('POST', `/vms/${name}/exec`, { command })
 export const listLaunches = () => request('GET', '/launches')
 export const dismissLaunch = (name) => request('DELETE', `/launches/${encodeURIComponent(name)}`)
+export const cloneVM = (name, destName, snapshot) => request('POST', `/vms/${name}/clone`, { name: destName, snapshot })
 export const getCloudInitStatus = (name) => request('GET', `/vms/${name}/cloud-init/status`)
 
 // Snapshots

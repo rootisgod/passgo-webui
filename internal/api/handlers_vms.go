@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,6 +84,62 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"name": name, "message": "VM launch started"})
+}
+
+type cloneVMRequest struct {
+	Name     string `json:"name"`
+	Snapshot string `json:"snapshot"`
+}
+
+func (s *Server) handleCloneVM(w http.ResponseWriter, r *http.Request) {
+	source := r.PathValue("name")
+
+	var req cloneVMRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	destName := req.Name
+	if destName == "" {
+		destName = s.nextCloneName(source)
+	}
+
+	s.launches.start(destName)
+	go func() {
+		_, err := s.mp.CloneVM(source, destName)
+		if err != nil {
+			s.logger.Error("VM clone failed", "source", source, "dest", destName, "err", err)
+			s.launches.fail(destName, err.Error())
+			return
+		}
+		// If a snapshot was specified, restore the clone to that snapshot's state
+		if req.Snapshot != "" {
+			if err := s.mp.RestoreSnapshot(destName, req.Snapshot); err != nil {
+				s.logger.Error("clone snapshot restore failed", "dest", destName, "snapshot", req.Snapshot, "err", err)
+				s.launches.fail(destName, "cloned but failed to restore snapshot: "+err.Error())
+				return
+			}
+		}
+		s.launches.complete(destName)
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"name": destName, "message": "VM clone started"})
+}
+
+// nextCloneName finds the next available clone name like "source-clone1", "source-clone2", etc.
+func (s *Server) nextCloneName(source string) string {
+	vms, _ := s.mp.ListVMs()
+	existing := make(map[string]bool)
+	for _, vm := range vms {
+		existing[vm.Name] = true
+	}
+	for _, l := range s.launches.list() {
+		existing[l.Name] = true
+	}
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("%s-clone%d", source, i)
+		if !existing[name] {
+			return name
+		}
+	}
 }
 
 func (s *Server) handleListLaunches(w http.ResponseWriter, r *http.Request) {
