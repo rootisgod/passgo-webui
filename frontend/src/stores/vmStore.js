@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { listVMs, listLaunches, dismissLaunch, ApiError } from '../api/client.js'
+import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
   state: () => ({
@@ -7,6 +8,7 @@ export const useVmStore = defineStore('vms', {
     vms: [],
     launches: [],  // in-progress or recently-failed launches
     selectedNode: null,  // null = host, string = VM name
+    selectedVms: [],     // multi-select: array of VM names
     lastRefresh: null,
     loading: false,
     error: null,
@@ -27,6 +29,7 @@ export const useVmStore = defineStore('vms', {
     },
     launchingCount() { return this.activeLaunches.length },
     failedLaunches: (state) => state.launches.filter(l => l.status === 'failed'),
+    selectedVmObjects: (state) => state.vms.filter(vm => state.selectedVms.includes(vm.name)),
   },
 
   actions: {
@@ -50,6 +53,17 @@ export const useVmStore = defineStore('vms', {
         this.vms = vms
         this.launches = launches
         this.lastRefresh = new Date()
+
+        // Record metrics for running VMs
+        for (const vm of vms) {
+          if (vm.state === 'Running' && vm.load) {
+            const loadParts = vm.load.split(' ').map(Number)
+            const cpuLoad = loadParts.length >= 1 ? loadParts[0] : 0
+            const memPct = vm.memory_total_raw ? (vm.memory_usage_raw / vm.memory_total_raw) * 100 : 0
+            const diskPct = vm.disk_total_raw ? (vm.disk_usage_raw / vm.disk_total_raw) * 100 : 0
+            recordMetrics(vm.name, { cpu: cpuLoad, memory: memPct, disk: diskPct })
+          }
+        }
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           this.authenticated = false
@@ -70,6 +84,23 @@ export const useVmStore = defineStore('vms', {
 
     selectNode(name) {
       this.selectedNode = name
+    },
+
+    toggleVmSelection(name) {
+      const idx = this.selectedVms.indexOf(name)
+      if (idx >= 0) {
+        this.selectedVms.splice(idx, 1)
+      } else {
+        this.selectedVms.push(name)
+      }
+    },
+
+    selectAllVms() {
+      this.selectedVms = this.vms.map(vm => vm.name)
+    },
+
+    clearSelection() {
+      this.selectedVms = []
     },
   },
 })

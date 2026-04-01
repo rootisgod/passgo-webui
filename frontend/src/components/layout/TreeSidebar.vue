@@ -6,17 +6,66 @@ import StatusDot from '../shared/StatusDot.vue'
 import ContextMenu from '../shared/ContextMenu.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
-import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw } from 'lucide-vue-next'
-import { ref, markRaw } from 'vue'
+import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Square as SquareIcon } from 'lucide-vue-next'
+import { ref, computed, markRaw } from 'vue'
 
 const store = useVmStore()
 const toasts = useToastStore()
 const expanded = ref(true)
+const selectionMode = ref(false)
 
 // Context menu state
 const contextMenu = ref(null) // { x, y, items }
 const confirmAction = ref(null)
 const cloneVmName = ref(null)
+
+// Bulk selection
+const hasSelectedStopped = computed(() => store.selectedVmObjects.some(vm => vm.state === 'Stopped' || vm.state === 'Suspended'))
+const hasSelectedRunning = computed(() => store.selectedVmObjects.some(vm => vm.state === 'Running' || vm.state === 'Suspended'))
+const hasSelectedNonDeleted = computed(() => store.selectedVmObjects.some(vm => vm.state !== 'Deleted'))
+const allSelected = computed(() => store.vms.length > 0 && store.selectedVms.length === store.vms.length)
+
+function toggleSelectionMode() {
+  selectionMode.value = !selectionMode.value
+  if (!selectionMode.value) store.clearSelection()
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    store.clearSelection()
+  } else {
+    store.selectAllVms()
+  }
+}
+
+async function bulkAction(fn, label) {
+  const names = [...store.selectedVms]
+  const results = await Promise.allSettled(names.map(fn))
+  const failed = results.filter(r => r.status === 'rejected')
+  if (failed.length) {
+    toasts.error(`${failed.length} of ${names.length} failed`)
+  } else {
+    toasts.success(`${label} ${names.length} VM${names.length !== 1 ? 's' : ''}`)
+  }
+  store.clearSelection()
+  store.fetchVMs()
+}
+
+function bulkStart() {
+  bulkAction(name => api.startVM(name), 'Started')
+}
+
+function bulkStop() {
+  bulkAction(name => api.stopVM(name), 'Stopped')
+}
+
+function bulkDelete() {
+  const count = store.selectedVms.length
+  confirmAction.value = {
+    message: `Delete ${count} VM${count !== 1 ? 's' : ''}?`,
+    fn: () => bulkAction(name => api.deleteVM(name), 'Deleted'),
+  }
+}
 
 function selectHost() {
   store.selectNode(null)
@@ -82,8 +131,8 @@ async function executeConfirmed() {
 </script>
 
 <template>
-  <aside class="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] overflow-y-auto flex-shrink-0 select-none">
-    <div class="p-2">
+  <aside class="w-60 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex-shrink-0 select-none flex flex-col">
+    <div class="p-2 flex-1 overflow-y-auto">
       <!-- Cloud-Init -->
       <div
         class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors"
@@ -110,7 +159,26 @@ async function executeConfirmed() {
           <ChevronRight v-else class="w-3 h-3" />
         </button>
         <Monitor class="w-4 h-4" />
-        <span class="text-sm font-medium truncate">{{ store.hostname }}</span>
+        <span class="text-sm font-medium truncate flex-1">{{ store.hostname }}</span>
+        <button
+          v-if="store.vms.length > 0"
+          class="w-4 h-4 flex items-center justify-center transition-colors"
+          :class="selectionMode ? 'text-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--text-secondary)]'"
+          title="Toggle selection mode"
+          @click.stop="toggleSelectionMode"
+        >
+          <CheckSquare class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <!-- Select all toggle -->
+      <div v-if="selectionMode && expanded" class="ml-4 px-2 py-1">
+        <button
+          class="text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+          @click="toggleSelectAll"
+        >
+          {{ allSelected ? 'Deselect All' : 'Select All' }}
+        </button>
       </div>
 
       <!-- Launching VMs (only shown if not yet in the real VM list) -->
@@ -135,6 +203,13 @@ async function executeConfirmed() {
           @click="selectVM(vm.name)"
           @contextmenu.prevent="openContextMenu($event, vm)"
         >
+          <input
+            v-if="selectionMode"
+            type="checkbox"
+            :checked="store.selectedVms.includes(vm.name)"
+            class="w-3.5 h-3.5 rounded border-[var(--border)] bg-[var(--bg-primary)] text-[var(--accent)] focus:ring-0 focus:ring-offset-0 cursor-pointer flex-shrink-0"
+            @click.stop="store.toggleVmSelection(vm.name)"
+          />
           <StatusDot :state="vm.state" />
           <span class="truncate">{{ vm.name }}</span>
         </div>
@@ -166,5 +241,38 @@ async function executeConfirmed() {
       @close="cloneVmName = null"
       @cloned="cloneVmName = null"
     />
+
+    <!-- Bulk action bar -->
+    <div
+      v-if="store.selectedVms.length > 0"
+      class="border-t border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 flex-shrink-0"
+    >
+      <div class="text-xs text-[var(--text-secondary)] mb-2">
+        {{ store.selectedVms.length }} selected
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="hasSelectedStopped"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-green-900/30 hover:bg-[var(--success)] text-green-300 hover:text-white transition-colors"
+          @click="bulkStart"
+        >
+          <Play class="w-3 h-3" /> Start
+        </button>
+        <button
+          v-if="hasSelectedRunning"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-[var(--bg-hover)] hover:bg-[var(--border)] transition-colors"
+          @click="bulkStop"
+        >
+          <Square class="w-3 h-3" /> Stop
+        </button>
+        <button
+          v-if="hasSelectedNonDeleted"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-red-900/30 hover:bg-[var(--danger)] text-red-300 hover:text-white transition-colors"
+          @click="bulkDelete"
+        >
+          <Trash2 class="w-3 h-3" /> Delete
+        </button>
+      </div>
+    </div>
   </aside>
 </template>

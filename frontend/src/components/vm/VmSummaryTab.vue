@@ -3,8 +3,10 @@ import { computed, ref } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
+import { getHistory } from '../../composables/useMetricsHistory.js'
 import ActionButton from '../shared/ActionButton.vue'
 import StatusDot from '../shared/StatusDot.vue'
+import Sparkline from '../shared/Sparkline.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloudInitStatus from './CloudInitStatus.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
@@ -88,6 +90,8 @@ async function executeConfirmed() {
   if (fn) await fn()
 }
 
+const metrics = computed(() => vm.value ? getHistory(vm.value.name) : { cpu: [], memory: [], disk: [] })
+
 const isRunning = computed(() => vm.value?.state === 'Running')
 const isStopped = computed(() => vm.value?.state === 'Stopped')
 const isSuspended = computed(() => vm.value?.state === 'Suspended')
@@ -107,11 +111,12 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
         <div class="text-2xl font-bold mb-1" :class="loadColor(loadValues.one, vm.cpus)">
           {{ loadValues.one.toFixed(2) }}
         </div>
-        <div class="text-xs text-[var(--text-secondary)]">
+        <div class="text-xs text-[var(--text-secondary)] mb-2">
           {{ loadValues.five.toFixed(2) }} <span class="text-[var(--muted)]">5m</span>
           {{ loadValues.fifteen.toFixed(2) }} <span class="text-[var(--muted)]">15m</span>
           <span class="ml-2 text-[var(--muted)]">/ {{ vm.cpus }} CPUs</span>
         </div>
+        <Sparkline :data="metrics.cpu" :max="parseInt(vm.cpus) || 1" color="var(--accent)" :height="28" />
       </div>
 
       <!-- Memory -->
@@ -124,7 +129,8 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
         <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
           <div class="h-full rounded-full transition-all" :class="barColor(memoryPercent)" :style="{ width: memoryPercent + '%' }" />
         </div>
-        <div class="text-xs text-[var(--text-secondary)]">{{ vm.memory_usage }} / {{ vm.memory_total }}</div>
+        <div class="text-xs text-[var(--text-secondary)] mb-2">{{ vm.memory_usage }} / {{ vm.memory_total }}</div>
+        <Sparkline :data="metrics.memory" :max="100" color="var(--success)" :height="28" />
       </div>
 
       <!-- Disk -->
@@ -137,7 +143,8 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
         <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
           <div class="h-full rounded-full transition-all" :class="barColor(diskPercent)" :style="{ width: diskPercent + '%' }" />
         </div>
-        <div class="text-xs text-[var(--text-secondary)]">{{ vm.disk_usage }} / {{ vm.disk_total }}</div>
+        <div class="text-xs text-[var(--text-secondary)] mb-2">{{ vm.disk_usage }} / {{ vm.disk_total }}</div>
+        <Sparkline :data="metrics.disk" :max="100" color="var(--warning)" :height="28" />
       </div>
     </div>
 
