@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	maxAgentIterations     = 20
+	maxAgentIterations      = 50
 	maxConversationMessages = 50
 )
 
@@ -34,20 +34,23 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 	readOnly := s.cfg.LLM.ReadOnly
 	tools := filterToolsForMode(readOnly)
 
-	// Build system prompt with current VM state
-	systemPrompt := s.buildSystemPrompt()
 	messages := make([]chatMessage, 0, len(history)+2)
-	messages = append(messages, chatMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, chatMessage{Role: "system", Content: ""}) // placeholder, refreshed each iteration
 	messages = append(messages, history...)
 
 	cfg := s.cfg.LLM
 
-	for i := 0; i < maxAgentIterations; i++ {
+	writeIterations := 0
+	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
+
+		// Refresh system prompt with current VM/group state before every LLM call
+		// so the model never works from stale data
+		messages[0].Content = s.buildSystemPrompt()
 
 		// Trim to keep conversation manageable
 		messages = trimMessages(messages, maxConversationMessages)
@@ -55,7 +58,7 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 		// Non-streaming call (handles tool calls)
 		msg, err := llmChat(ctx, cfg, messages, tools)
 		if err != nil {
-			s.logger.Error("LLM call failed", "iteration", i, "err", err)
+			s.logger.Error("LLM call failed", "err", err)
 			eventCh <- sseEvent{Type: "error", Content: fmt.Sprintf("LLM error: %s", err.Error())}
 			return
 		}
@@ -176,11 +179,19 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 				ToolCallID: tc.ID,
 				Content:    result,
 			})
+
+			// Only count write tools against the iteration limit
+			if !readOnlyTools[tc.Function.Name] {
+				writeIterations++
+			}
+		}
+
+		if writeIterations >= maxAgentIterations {
+			eventCh <- sseEvent{Type: "error", Content: fmt.Sprintf("Safety limit reached (%d write operations)", maxAgentIterations)}
+			return
 		}
 		// Loop continues — send tool results back to LLM
 	}
-
-	eventCh <- sseEvent{Type: "error", Content: "Maximum tool iterations reached"}
 }
 
 // describeDestructiveAction returns a human-readable description of what a
