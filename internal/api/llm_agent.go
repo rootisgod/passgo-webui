@@ -268,6 +268,29 @@ RULES:
 		}
 	}
 
+	// Include group information
+	s.groupMu.Lock()
+	groups := s.cfg.Groups
+	vmGroups := s.cfg.VMGroups
+	s.groupMu.Unlock()
+
+	if len(groups) > 0 {
+		sb.WriteString(fmt.Sprintf("\nGROUPS (%d):\n", len(groups)))
+		for _, g := range groups {
+			var members []string
+			for vm, grp := range vmGroups {
+				if grp == g {
+					members = append(members, vm)
+				}
+			}
+			if len(members) > 0 {
+				sb.WriteString(fmt.Sprintf("- %s: %s\n", g, strings.Join(members, ", ")))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %s: (empty)\n", g))
+			}
+		}
+	}
+
 	return sb.String()
 }
 

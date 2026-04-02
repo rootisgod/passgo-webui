@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+
+	"github.com/rootisgod/passgo-web/internal/config"
 )
 
 // executeTool dispatches a tool call to the corresponding multipass.Client method.
@@ -189,6 +192,110 @@ func (s *Server) executeTool(toolName string, argsJSON string) (string, error) {
 			return toolError(err), nil
 		}
 		return toJSON(nets), nil
+
+	case "list_groups":
+		s.groupMu.Lock()
+		groups := s.cfg.Groups
+		vmGroups := s.cfg.VMGroups
+		s.groupMu.Unlock()
+		return toJSON(map[string]any{"groups": groups, "vm_groups": vmGroups}), nil
+
+	case "create_group":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		s.groupMu.Lock()
+		defer s.groupMu.Unlock()
+		if slices.Contains(s.cfg.Groups, args.Name) {
+			return toolError(fmt.Errorf("group '%s' already exists", args.Name)), nil
+		}
+		s.cfg.Groups = append(s.cfg.Groups, args.Name)
+		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"created","group":"%s"}`, args.Name), nil
+
+	case "rename_group":
+		var args struct {
+			OldName string `json:"old_name"`
+			NewName string `json:"new_name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		s.groupMu.Lock()
+		defer s.groupMu.Unlock()
+		idx := slices.Index(s.cfg.Groups, args.OldName)
+		if idx < 0 {
+			return toolError(fmt.Errorf("group '%s' not found", args.OldName)), nil
+		}
+		if args.OldName != args.NewName && slices.Contains(s.cfg.Groups, args.NewName) {
+			return toolError(fmt.Errorf("group '%s' already exists", args.NewName)), nil
+		}
+		s.cfg.Groups[idx] = args.NewName
+		for vm, g := range s.cfg.VMGroups {
+			if g == args.OldName {
+				s.cfg.VMGroups[vm] = args.NewName
+			}
+		}
+		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"renamed","old_name":"%s","new_name":"%s"}`, args.OldName, args.NewName), nil
+
+	case "delete_group":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		s.groupMu.Lock()
+		defer s.groupMu.Unlock()
+		idx := slices.Index(s.cfg.Groups, args.Name)
+		if idx < 0 {
+			return toolError(fmt.Errorf("group '%s' not found", args.Name)), nil
+		}
+		s.cfg.Groups = slices.Delete(s.cfg.Groups, idx, idx+1)
+		for vm, g := range s.cfg.VMGroups {
+			if g == args.Name {
+				delete(s.cfg.VMGroups, vm)
+			}
+		}
+		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"deleted","group":"%s"}`, args.Name), nil
+
+	case "assign_vm_to_group":
+		var args struct {
+			VM    string `json:"vm"`
+			Group string `json:"group"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		s.groupMu.Lock()
+		defer s.groupMu.Unlock()
+		if args.Group != "" && !slices.Contains(s.cfg.Groups, args.Group) {
+			return toolError(fmt.Errorf("group '%s' not found", args.Group)), nil
+		}
+		if args.Group == "" {
+			delete(s.cfg.VMGroups, args.VM)
+		} else {
+			s.cfg.VMGroups[args.VM] = args.Group
+		}
+		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+			return toolError(err), nil
+		}
+		action := "assigned"
+		if args.Group == "" {
+			action = "unassigned"
+		}
+		return fmt.Sprintf(`{"status":"%s","vm":"%s","group":"%s"}`, action, args.VM, args.Group), nil
 
 	default:
 		return "", fmt.Errorf("unhandled tool: %s", toolName)

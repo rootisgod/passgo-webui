@@ -21,6 +21,7 @@ var readOnlyTools = map[string]bool{
 	"get_vm_info":    true,
 	"list_snapshots": true,
 	"list_networks":  true,
+	"list_groups":    true,
 }
 
 // destructiveTools require user confirmation before execution.
@@ -225,6 +226,72 @@ func init() {
 				Name:        "list_networks",
 				Description: "List available network interfaces that VMs can bridge to",
 				Parameters: json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "list_groups",
+				Description: "List all VM groups and which VMs are assigned to each group",
+				Parameters: json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "create_group",
+				Description: "Create a new group for organizing VMs in the sidebar",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Name for the new group"}
+					},
+					"required":["name"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "rename_group",
+				Description: "Rename an existing VM group",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"old_name":{"type":"string","description":"Current name of the group"},
+						"new_name":{"type":"string","description":"New name for the group"}
+					},
+					"required":["old_name","new_name"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "delete_group",
+				Description: "Delete a VM group. VMs in the group are unassigned, not deleted.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Name of the group to delete"}
+					},
+					"required":["name"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "assign_vm_to_group",
+				Description: "Move a VM into a group, or remove it from its current group by setting group to empty string",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"vm":{"type":"string","description":"Name of the VM"},
+						"group":{"type":"string","description":"Name of the group to assign to, or empty string to unassign"}
+					},
+					"required":["vm","group"]
+				}`),
 			},
 		},
 	}

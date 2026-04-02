@@ -7,6 +7,7 @@ const stateChangingTools = new Set([
   'start_vm', 'stop_vm', 'suspend_vm', 'delete_vm', 'recover_vm',
   'create_vm', 'create_snapshot', 'restore_snapshot', 'delete_snapshot',
   'exec_command',
+  'create_group', 'rename_group', 'delete_group', 'assign_vm_to_group',
 ])
 
 let nextId = 1
