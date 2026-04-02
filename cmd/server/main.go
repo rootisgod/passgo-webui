@@ -68,6 +68,11 @@ func main() {
 		fmt.Printf("Config: %s\n", configPath)
 	}
 
+	// Auto-migrate plaintext passwords to bcrypt
+	if err := config.MigratePassword(cfg, configPath); err != nil {
+		logger.Warn("failed to migrate password to bcrypt", "err", err)
+	}
+
 	// Override from flags
 	if port > 0 {
 		cfg.Listen = fmt.Sprintf(":%d", port)
@@ -76,7 +81,12 @@ func main() {
 		cfg.Username = username
 	}
 	if password != "" {
-		cfg.Password = password
+		hashed, err := config.HashPassword(password)
+		if err != nil {
+			logger.Error("failed to hash password", "err", err)
+			os.Exit(1)
+		}
+		cfg.Password = hashed
 	}
 
 	// Create multipass client

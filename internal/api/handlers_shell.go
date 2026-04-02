@@ -11,7 +11,7 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	sid := r.PathValue("sessionId")
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // Allow any origin for local tool
+		OriginPatterns: allowedOriginPatterns(r.Host),
 	})
 	if err != nil {
 		s.logger.Error("websocket accept failed", "err", err)

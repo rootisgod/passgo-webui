@@ -4,9 +4,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type sessionStore struct {
@@ -57,6 +61,13 @@ func (s *sessionStore) Delete(token string) {
 }
 
 func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Rate limit by IP
+	ip := clientIP(r)
+	if !srv.loginLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
+		return
+	}
+
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -66,7 +77,8 @@ func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username != srv.cfg.Username || req.Password != srv.cfg.Password {
+	if !srv.checkCredentials(req.Username, req.Password) {
+		srv.loginLimiter.record(ip)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -82,7 +94,7 @@ func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   isTLS(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	})
@@ -98,7 +110,39 @@ func (srv *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   isTLS(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 	writeMessage(w, "logged out")
+}
+
+// checkCredentials validates username/password. Supports both bcrypt-hashed
+// and legacy plaintext passwords (for migration).
+func (srv *Server) checkCredentials(username, password string) bool {
+	if username != srv.cfg.Username {
+		return false
+	}
+	// Try bcrypt first (hashed passwords start with "$2a$" or "$2b$")
+	stored := srv.cfg.Password
+	if len(stored) > 4 && stored[0] == '$' {
+		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(password)) == nil
+	}
+	// Fall back to plaintext comparison for legacy configs
+	return stored == password
+}
+
+// clientIP extracts the client IP from the request, checking X-Forwarded-For
+// for reverse proxy setups.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if ip, _, _ := strings.Cut(xff, ","); ip != "" {
+			return strings.TrimSpace(ip)
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

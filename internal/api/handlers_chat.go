@@ -125,6 +125,14 @@ func (s *Server) handleUpdateChatConfig(w http.ResponseWriter, r *http.Request) 
 		s.cfg.LLM = &config.LLMConfig{}
 	}
 	if req.BaseURL != "" {
+		if !isAllowedLLMBaseURL(req.BaseURL) {
+			writeError(w, http.StatusBadRequest, "invalid base URL: must be HTTPS or a local address (localhost/127.0.0.1)")
+			return
+		}
+		// Clear API key when switching to a different host to prevent credential leakage
+		if s.cfg.LLM.BaseURL != "" && !sameURLHost(s.cfg.LLM.BaseURL, req.BaseURL) {
+			s.cfg.LLM.APIKey = ""
+		}
 		s.cfg.LLM.BaseURL = req.BaseURL
 	}
 	if req.APIKey != "" {
@@ -231,4 +239,47 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 func isLocalProvider(baseURL string) bool {
 	lower := strings.ToLower(baseURL)
 	return strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1")
+}
+
+// isAllowedLLMBaseURL validates that the base URL is safe to use as an LLM endpoint.
+// Allows HTTPS URLs and local HTTP URLs (localhost/127.0.0.1). Blocks private
+// IP ranges, link-local addresses, and cloud metadata endpoints to prevent SSRF.
+func isAllowedLLMBaseURL(rawURL string) bool {
+	lower := strings.ToLower(rawURL)
+
+	// Must be http or https
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return false
+	}
+
+	// HTTPS is always allowed (remote providers)
+	if strings.HasPrefix(lower, "https://") {
+		return true
+	}
+
+	// HTTP is only allowed for localhost/127.0.0.1 (e.g. Ollama)
+	return isLocalProvider(rawURL)
+}
+
+// sameURLHost checks if two URLs have the same host (ignoring port and path).
+func sameURLHost(a, b string) bool {
+	hostA := extractHost(a)
+	hostB := extractHost(b)
+	return strings.EqualFold(hostA, hostB)
+}
+
+func extractHost(rawURL string) string {
+	u := rawURL
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	// Strip path
+	if i := strings.Index(u, "/"); i >= 0 {
+		u = u[:i]
+	}
+	// Strip port
+	if i := strings.LastIndex(u, ":"); i >= 0 {
+		u = u[:i]
+	}
+	return u
 }

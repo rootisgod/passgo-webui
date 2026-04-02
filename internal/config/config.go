@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type LLMConfig struct {
@@ -87,14 +89,42 @@ func CreateDefault(path string) (*Config, error) {
 	home, _ := os.UserHomeDir()
 	cloudInitDir := filepath.Join(home, ".passgo-web", "cloud-init")
 
+	hashed, err := HashPassword("admin")
+	if err != nil {
+		return nil, fmt.Errorf("hash default password: %w", err)
+	}
+
 	cfg := &Config{
 		Listen:       ":8080",
 		CloudInitDir: cloudInitDir,
 		Username:     "admin",
-		Password:     "admin",
+		Password:     hashed,
 	}
 	if err := cfg.Save(path); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// HashPassword returns the bcrypt hash of the given password.
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// MigratePassword checks if the stored password is plaintext (not bcrypt-hashed)
+// and hashes it in place, saving the config. Call on startup to auto-migrate.
+func MigratePassword(cfg *Config, configPath string) error {
+	if len(cfg.Password) > 0 && cfg.Password[0] != '$' {
+		hashed, err := HashPassword(cfg.Password)
+		if err != nil {
+			return err
+		}
+		cfg.Password = hashed
+		return cfg.Save(configPath)
+	}
+	return nil
 }

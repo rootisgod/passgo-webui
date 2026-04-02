@@ -23,6 +23,7 @@ type Server struct {
 	sessions           *sessionStore
 	ptySessions        *ptyStore
 	groupMu            sync.Mutex
+	loginLimiter       *loginRateLimiter
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -37,6 +38,7 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		launches:           newLaunchTracker(),
 		sessions:           newSessionStore(24 * time.Hour),
 		ptySessions:        newPtyStore(logger),
+		loginLimiter:       newLoginRateLimiter(5, time.Minute),
 	}
 }
 
@@ -123,10 +125,12 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 		mux.Handle("/", staticFS)
 	}
 
-	// Apply global middleware
+	// Apply global middleware (outermost first)
 	var handler http.Handler = mux
 	handler = authMiddleware(s.sessions, handler)
+	handler = bodySizeLimitMiddleware(handler)
 	handler = corsMiddleware(handler)
+	handler = securityHeadersMiddleware(handler)
 	handler = loggingMiddleware(s.logger, handler)
 
 	return handler
