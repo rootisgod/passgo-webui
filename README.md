@@ -38,7 +38,7 @@ The server starts on `http://localhost:8080`. A config file is created at `~/.pa
 
 ## Building from Source
 
-Requires Go 1.25+ and Node.js 20+.
+Requires Go 1.26+ and Node.js 20+.
 
 ```bash
 # Build frontend
