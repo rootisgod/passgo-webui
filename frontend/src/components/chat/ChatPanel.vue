@@ -156,6 +156,15 @@ function send() {
         </div>
       </div>
 
+      <!-- Token usage -->
+      <div
+        v-if="chatStore.sessionUsage.total > 0"
+        class="px-3 py-1 text-[10px] text-[var(--text-secondary)] opacity-60 border-t border-[var(--border)]"
+      >
+        Session: {{ chatStore.sessionUsage.total.toLocaleString() }} tokens
+        ({{ chatStore.sessionUsage.prompt.toLocaleString() }} in / {{ chatStore.sessionUsage.completion.toLocaleString() }} out)
+      </div>
+
       <!-- Input -->
       <div class="border-t border-[var(--border)] p-3">
         <div class="flex gap-2">

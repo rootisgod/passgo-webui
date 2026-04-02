@@ -41,8 +41,15 @@ type llmChatRequest struct {
 	Stream   bool          `json:"stream"`
 }
 
+type llmUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type llmChatResponse struct {
 	Choices []llmChoice `json:"choices"`
+	Usage   *llmUsage   `json:"usage,omitempty"`
 }
 
 type llmChoice struct {
@@ -60,7 +67,7 @@ var llmHTTPClient = &http.Client{Timeout: 5 * time.Minute}
 
 // llmChat makes a non-streaming call to the OpenAI-compatible chat completions endpoint.
 // Used during the tool-calling loop where we need the full response before proceeding.
-func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage, tools []toolDef) (*chatMessage, error) {
+func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage, tools []toolDef) (*chatMessage, *llmUsage, error) {
 	reqBody := llmChatRequest{
 		Model:    cfg.Model,
 		Messages: messages,
@@ -70,13 +77,13 @@ func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage,
 
 	data, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, nil, fmt.Errorf("marshal request: %w", err)
 	}
 
 	url := strings.TrimRight(cfg.BaseURL, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.APIKey != "" {
@@ -85,29 +92,29 @@ func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage,
 
 	resp, err := llmHTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("LLM request failed: %w", err)
+		return nil, nil, fmt.Errorf("LLM request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, nil, fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("LLM returned status %d: %s", resp.StatusCode, truncate(string(body), 300))
+		return nil, nil, fmt.Errorf("LLM returned status %d: %s", resp.StatusCode, truncate(string(body), 300))
 	}
 
 	var chatResp llmChatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		return nil, nil, fmt.Errorf("parse response: %w", err)
 	}
 	if len(chatResp.Choices) == 0 {
-		return nil, fmt.Errorf("LLM returned no choices")
+		return nil, nil, fmt.Errorf("LLM returned no choices")
 	}
 
 	msg := chatResp.Choices[0].Message
-	return &msg, nil
+	return &msg, chatResp.Usage, nil
 }
 
 // llmChatStream makes a streaming call and sends tokens to the returned channel.

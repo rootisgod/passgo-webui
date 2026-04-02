@@ -58,6 +58,7 @@ export const useChatStore = defineStore('chat', {
       readOnly: false,
     },
     pendingConfirmation: null,
+    sessionUsage: { prompt: 0, completion: 0, total: 0 },
     error: null,
     abortController: null,
   }),
@@ -75,6 +76,7 @@ export const useChatStore = defineStore('chat', {
     clearHistory() {
       this.messages = []
       this.error = null
+      this.sessionUsage = { prompt: 0, completion: 0, total: 0 }
       persistMessages(this.messages)
     },
 
@@ -260,6 +262,11 @@ export const useChatStore = defineStore('chat', {
                 this.messages[msgIdx].isError = true
                 break
               case 'done':
+                if (event.usage && event.usage.total_tokens > 0) {
+                  this.sessionUsage.prompt += event.usage.prompt_tokens || 0
+                  this.sessionUsage.completion += event.usage.completion_tokens || 0
+                  this.sessionUsage.total += event.usage.total_tokens || 0
+                }
                 break
             }
           }

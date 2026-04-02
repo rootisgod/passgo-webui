@@ -54,16 +54,18 @@ type sseEvent struct {
 	Name        string `json:"name,omitempty"`
 	Args        string `json:"args,omitempty"`
 	Result      string `json:"result,omitempty"`
-	ConfirmID   string `json:"confirm_id,omitempty"`   // unique ID for confirmation flow
-	Description string `json:"description,omitempty"`  // human-readable description of what will happen
+	ConfirmID   string    `json:"confirm_id,omitempty"`   // unique ID for confirmation flow
+	Description string    `json:"description,omitempty"`  // human-readable description of what will happen
+	Usage       *llmUsage `json:"usage,omitempty"`        // token usage stats (sent with done event)
 }
 
 // runAgentLoop orchestrates the LLM agent: sends messages, executes tool calls,
 // and streams the final response via SSE events.
 // confirmedTools contains tool call IDs that the user has already approved (for destructive actions).
 func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confirmedTools map[string]bool, eventCh chan<- sseEvent) {
+	var totalUsage llmUsage
 	defer func() {
-		eventCh <- sseEvent{Type: "done"}
+		eventCh <- sseEvent{Type: "done", Usage: &totalUsage}
 		close(eventCh)
 	}()
 
@@ -92,7 +94,12 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 		messages = trimMessages(messages, maxConversationMessages)
 
 		// Non-streaming call (handles tool calls)
-		msg, err := llmChat(ctx, cfg, messages, tools)
+		msg, usage, err := llmChat(ctx, cfg, messages, tools)
+		if usage != nil {
+			totalUsage.PromptTokens += usage.PromptTokens
+			totalUsage.CompletionTokens += usage.CompletionTokens
+			totalUsage.TotalTokens += usage.TotalTokens
+		}
 		if err != nil {
 			s.logger.Error("LLM call failed", "err", err)
 			eventCh <- sseEvent{Type: "error", Content: fmt.Sprintf("LLM error: %s", err.Error())}
