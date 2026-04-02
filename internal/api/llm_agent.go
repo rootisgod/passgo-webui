@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -11,6 +14,39 @@ const (
 	maxAgentIterations      = 50
 	maxConversationMessages = 50
 )
+
+// makeConfirmID generates a deterministic confirmation ID from tool name + args.
+// This ensures the ID is stable across LLM retries (which generate new ephemeral tool call IDs).
+func makeConfirmID(toolName, argsJSON string) string {
+	h := sha256.Sum256([]byte(toolName + ":" + normalizeJSON(argsJSON)))
+	return "confirm:" + hex.EncodeToString(h[:8])
+}
+
+// makeBulkConfirmID generates a deterministic confirmation ID for a batch of state-changing tools.
+func makeBulkConfirmID(toolCalls []toolCall) string {
+	var parts []string
+	for _, tc := range toolCalls {
+		if allowedTools[tc.Function.Name] && !readOnlyTools[tc.Function.Name] {
+			parts = append(parts, tc.Function.Name+":"+normalizeJSON(tc.Function.Arguments))
+		}
+	}
+	sort.Strings(parts)
+	h := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return "bulk:" + hex.EncodeToString(h[:8])
+}
+
+// normalizeJSON re-serializes JSON to remove whitespace differences between LLM providers.
+func normalizeJSON(s string) string {
+	var v interface{}
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return s
+	}
+	return string(b)
+}
 
 type sseEvent struct {
 	Type        string `json:"type"`                   // token, tool_start, tool_done, confirm_required, error, done
@@ -101,16 +137,10 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 				stateChangingCount++
 			}
 		}
-		bulkConfirmed := false
-		for id := range confirmedTools {
-			if strings.HasPrefix(id, "bulk:") {
-				bulkConfirmed = true
-				break
-			}
-		}
+		bulkConfirmID := makeBulkConfirmID(msg.ToolCalls)
+		bulkConfirmed := confirmedTools[bulkConfirmID]
 		if stateChangingCount >= 2 && !bulkConfirmed {
 			desc := describeBulkOperation(msg.ToolCalls)
-			confirmID := "bulk:" + msg.ToolCalls[0].ID
 			s.logger.Info("bulk operation needs confirmation",
 				"count", stateChangingCount,
 				"description", desc,
@@ -118,7 +148,7 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 			eventCh <- sseEvent{
 				Type:        "confirm_required",
 				Name:        "bulk_operation",
-				ConfirmID:   confirmID,
+				ConfirmID:   bulkConfirmID,
 				Description: desc,
 			}
 			// Tell the LLM all tools are pending approval
@@ -173,7 +203,8 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 			}
 
 			// Destructive action confirmation gate
-			if destructiveTools[tc.Function.Name] && !confirmedTools[tc.ID] {
+			confirmID := makeConfirmID(tc.Function.Name, tc.Function.Arguments)
+			if destructiveTools[tc.Function.Name] && !confirmedTools[confirmID] {
 				desc := describeDestructiveAction(tc.Function.Name, tc.Function.Arguments)
 				s.logger.Info("destructive action needs confirmation",
 					"tool", tc.Function.Name,
@@ -183,7 +214,7 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 					Type:        "confirm_required",
 					Name:        tc.Function.Name,
 					Args:        tc.Function.Arguments,
-					ConfirmID:   tc.ID,
+					ConfirmID:   confirmID,
 					Description: desc,
 				}
 				// Tell the LLM the action is pending user approval
