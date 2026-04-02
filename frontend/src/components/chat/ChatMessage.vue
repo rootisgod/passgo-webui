@@ -49,7 +49,8 @@ function summarizeResult(result) {
           <Ban v-else-if="te.status === 'denied'" class="w-3 h-3 flex-shrink-0" />
           <Wrench v-else class="w-3 h-3 flex-shrink-0" />
           <span class="font-medium">{{ formatToolName(te.name) }}</span>
-          <span v-if="te.status === 'running'" class="animate-pulse">...</span>
+          <span v-if="te.status === 'running' && te.progress" class="truncate opacity-70 animate-pulse" :title="te.progress">{{ te.progress }}</span>
+          <span v-else-if="te.status === 'running'" class="animate-pulse">...</span>
           <span v-else-if="te.status === 'pending_confirm'" class="text-amber-400">awaiting confirmation</span>
           <span v-else-if="te.status === 'denied'" class="opacity-70">cancelled</span>
           <span v-else-if="te.result" class="truncate opacity-70" :title="te.result">

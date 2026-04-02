@@ -232,7 +232,15 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 				"args", tc.Function.Arguments,
 			)
 
-			result, err := s.executeTool(tc.Function.Name, tc.Function.Arguments)
+			// Progress callback sends tool_progress SSE events for long-running tools
+			progress := func(line string) {
+				eventCh <- sseEvent{
+					Type:    "tool_progress",
+					Name:    tc.Function.Name,
+					Content: line,
+				}
+			}
+			result, err := s.executeToolWithProgress(tc.Function.Name, tc.Function.Arguments, progress)
 			if err != nil {
 				result = fmt.Sprintf(`{"error":"%s"}`, err.Error())
 			}

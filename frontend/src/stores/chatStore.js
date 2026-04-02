@@ -228,6 +228,16 @@ export const useChatStore = defineStore('chat', {
                   }
                 }
                 break
+              case 'tool_progress':
+                {
+                  const te = this.messages[msgIdx].toolEvents.find(
+                    t => t.name === event.name && t.status === 'running'
+                  )
+                  if (te) {
+                    te.progress = event.content
+                  }
+                }
+                break
               case 'confirm_required':
                 {
                   const te = this.messages[msgIdx].toolEvents.find(

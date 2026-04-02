@@ -1,10 +1,12 @@
 package multipass
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -63,6 +65,44 @@ func (c *Client) runWithContext(ctx context.Context, args ...string) (string, er
 		return "", fmt.Errorf("command failed: %w\nStderr: %s", err, errMsg)
 	}
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// runStreamingContext executes a multipass command, streaming stdout lines to a callback.
+// Returns the full combined output and any error.
+func (c *Client) runStreamingContext(ctx context.Context, onLine func(string), args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "multipass", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	c.logger.Debug("exec-stream", "cmd", "multipass "+strings.Join(args, " "))
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start command: %w", err)
+	}
+
+	var output strings.Builder
+	scanner := bufio.NewScanner(io.LimitReader(stdout, 10*1024*1024)) // 10MB safety limit
+	for scanner.Scan() {
+		line := scanner.Text()
+		output.WriteString(line + "\n")
+		if onLine != nil {
+			onLine(line)
+		}
+	}
+
+	err = cmd.Wait()
+	if err != nil {
+		if ctx.Err() != nil {
+			return output.String(), fmt.Errorf("command timed out after deadline exceeded")
+		}
+		errMsg := strings.TrimSpace(stderr.String())
+		c.logger.Error("exec failed", "cmd", "multipass "+strings.Join(args, " "), "err", err, "stderr", errMsg)
+		return output.String(), fmt.Errorf("command failed: %w\nStderr: %s", err, errMsg)
+	}
+	return strings.TrimSpace(output.String()), nil
 }
 
 // RandomVMName generates a name like "VM-a1b2".

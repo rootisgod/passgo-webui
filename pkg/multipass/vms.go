@@ -285,6 +285,12 @@ func (c *Client) ExecInVMWithContext(ctx context.Context, vmName string, command
 	return c.runWithContext(ctx, args...)
 }
 
+// ExecInVMStreaming runs a command inside a VM, streaming stdout lines to a callback.
+func (c *Client) ExecInVMStreaming(ctx context.Context, vmName string, command []string, onLine func(string)) (string, error) {
+	args := append([]string{"exec", vmName, "--"}, command...)
+	return c.runStreamingContext(ctx, onLine, args...)
+}
+
 // GetRawInfo returns the raw text output of multipass info for a VM.
 func (c *Client) GetRawInfo(name string) (string, error) {
 	return c.run("info", name)

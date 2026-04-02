@@ -8,12 +8,22 @@ import (
 	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
+	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
+
+// progressFn is called during long-running tool execution to send progress updates.
+type progressFn func(line string)
 
 // executeTool dispatches a tool call to the corresponding multipass.Client method.
 // Tool-level errors are returned as JSON strings (not Go errors) so the LLM can
 // explain failures to the user. Only truly unexpected errors return as Go errors.
 func (s *Server) executeTool(toolName string, argsJSON string) (string, error) {
+	return s.executeToolWithProgress(toolName, argsJSON, nil)
+}
+
+// executeToolWithProgress is like executeTool but accepts a progress callback
+// for long-running operations (exec_command, create_vm).
+func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progress progressFn) (string, error) {
 	if !allowedTools[toolName] {
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -115,11 +125,36 @@ func (s *Server) executeTool(toolName string, argsJSON string) (string, error) {
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		vmName, err := s.mp.LaunchVM(args.Name, args.Image, args.CPUs, args.MemoryMB, args.DiskGB, "", "")
-		if err != nil {
-			return toolError(err), nil
+		// Launch asynchronously and poll for completion, sending progress updates
+		vmName := args.Name
+		if vmName == "" {
+			vmName = multipass.RandomVMName()
 		}
-		return fmt.Sprintf(`{"status":"created","vm":"%s"}`, vmName), nil
+		type launchResult struct {
+			name string
+			err  error
+		}
+		done := make(chan launchResult, 1)
+		go func() {
+			name, err := s.mp.LaunchVM(args.Name, args.Image, args.CPUs, args.MemoryMB, args.DiskGB, "", "")
+			done <- launchResult{name, err}
+		}()
+		// Poll with progress updates every 5 seconds
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case res := <-done:
+				if res.err != nil {
+					return toolError(res.err), nil
+				}
+				return fmt.Sprintf(`{"status":"created","vm":"%s"}`, res.name), nil
+			case <-ticker.C:
+				if progress != nil {
+					progress(fmt.Sprintf("Still creating VM '%s'...", vmName))
+				}
+			}
+		}
 
 	case "exec_command":
 		var args struct {
@@ -131,7 +166,7 @@ func (s *Server) executeTool(toolName string, argsJSON string) (string, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		output, err := s.mp.ExecInVMWithContext(ctx, args.VM, args.Command)
+		output, err := s.mp.ExecInVMStreaming(ctx, args.VM, args.Command, progress)
 		if err != nil {
 			return toolError(err), nil
 		}
