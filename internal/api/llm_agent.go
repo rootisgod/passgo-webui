@@ -87,6 +87,45 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 			return
 		}
 
+		// Bulk operation detection: if 2+ state-changing tools in one response,
+		// require user confirmation before executing any of them.
+		stateChangingCount := 0
+		for _, tc := range msg.ToolCalls {
+			if allowedTools[tc.Function.Name] && !readOnlyTools[tc.Function.Name] {
+				stateChangingCount++
+			}
+		}
+		bulkConfirmed := false
+		for id := range confirmedTools {
+			if strings.HasPrefix(id, "bulk:") {
+				bulkConfirmed = true
+				break
+			}
+		}
+		if stateChangingCount >= 2 && !bulkConfirmed {
+			desc := describeBulkOperation(msg.ToolCalls)
+			confirmID := "bulk:" + msg.ToolCalls[0].ID
+			s.logger.Info("bulk operation needs confirmation",
+				"count", stateChangingCount,
+				"description", desc,
+			)
+			eventCh <- sseEvent{
+				Type:        "confirm_required",
+				Name:        "bulk_operation",
+				ConfirmID:   confirmID,
+				Description: desc,
+			}
+			// Tell the LLM all tools are pending approval
+			for _, tc := range msg.ToolCalls {
+				messages = append(messages, chatMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content:    `{"status":"pending_confirmation","message":"Waiting for user to confirm this bulk operation."}`,
+				})
+			}
+			continue
+		}
+
 		// Execute each tool call
 		for _, tc := range msg.ToolCalls {
 			select {
@@ -225,6 +264,53 @@ func describeDestructiveAction(toolName, argsJSON string) string {
 	default:
 		return fmt.Sprintf("Execute %s", toolName)
 	}
+}
+
+// describeBulkOperation returns a human-readable description of all
+// state-changing tool calls in a batch.
+func describeBulkOperation(toolCalls []toolCall) string {
+	var ops []string
+	for _, tc := range toolCalls {
+		if readOnlyTools[tc.Function.Name] {
+			continue
+		}
+		var args struct {
+			Name     string `json:"name"`
+			VM       string `json:"vm"`
+			Snapshot string `json:"snapshot"`
+			Purge    bool   `json:"purge"`
+		}
+		json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		target := args.Name
+		if target == "" {
+			target = args.VM
+		}
+		switch tc.Function.Name {
+		case "stop_vm":
+			ops = append(ops, fmt.Sprintf("Stop '%s'", target))
+		case "start_vm":
+			ops = append(ops, fmt.Sprintf("Start '%s'", target))
+		case "suspend_vm":
+			ops = append(ops, fmt.Sprintf("Suspend '%s'", target))
+		case "delete_vm":
+			if args.Purge {
+				ops = append(ops, fmt.Sprintf("Purge '%s'", target))
+			} else {
+				ops = append(ops, fmt.Sprintf("Delete '%s'", target))
+			}
+		case "recover_vm":
+			ops = append(ops, fmt.Sprintf("Recover '%s'", target))
+		case "create_snapshot":
+			ops = append(ops, fmt.Sprintf("Snapshot '%s'", target))
+		case "restore_snapshot":
+			ops = append(ops, fmt.Sprintf("Restore '%s' to snapshot '%s'", target, args.Snapshot))
+		case "delete_snapshot":
+			ops = append(ops, fmt.Sprintf("Delete snapshot '%s' from '%s'", args.Snapshot, target))
+		default:
+			ops = append(ops, fmt.Sprintf("%s on '%s'", tc.Function.Name, target))
+		}
+	}
+	return fmt.Sprintf("Bulk operation (%d actions): %s", len(ops), strings.Join(ops, ", "))
 }
 
 // buildSystemPrompt creates a system message with current VM inventory.
