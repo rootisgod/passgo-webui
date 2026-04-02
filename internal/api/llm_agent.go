@@ -134,7 +134,7 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 		// (e.g. "I'll install microk8s now...") so the user sees progress.
 		// Trim to avoid injecting leading/trailing blank lines into the chat.
 		if trimmed := strings.TrimSpace(msg.Content); trimmed != "" {
-			eventCh <- sseEvent{Type: "token", Content: trimmed + "\n\n"}
+			eventCh <- sseEvent{Type: "token", Content: trimmed + "\n"}
 		}
 
 		// Bulk operation detection: if 2+ state-changing tools in one response,

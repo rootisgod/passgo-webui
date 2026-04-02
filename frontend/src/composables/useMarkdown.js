@@ -6,8 +6,9 @@
 export function renderMarkdown(text) {
   if (!text) return ''
 
-  // Collapse excessive blank lines before processing (LLMs often emit 3+ consecutive newlines)
-  text = text.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n+$/, '')
+  // Collapse double+ newlines to single newlines and trim — in chat context,
+  // one line break is enough spacing between paragraphs/list items.
+  text = text.replace(/\n{2,}/g, '\n').replace(/^\n+/, '').replace(/\n+$/, '')
 
   // Escape HTML entities first
   let html = text
