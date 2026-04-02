@@ -132,7 +132,7 @@ func init() {
 			Type: "function",
 			Function: toolFunction{
 				Name:        "create_vm",
-				Description: "Create and launch a new virtual machine. All parameters are optional — defaults will be used if omitted.",
+				Description: "Create and launch a new virtual machine. All parameters are optional — defaults will be used if omitted. VM names must be unique — check the current VM state before choosing a name to avoid conflicts with existing or in-progress VMs.",
 				Parameters: json.RawMessage(`{
 					"type":"object",
 					"properties":{
@@ -149,7 +149,7 @@ func init() {
 			Type: "function",
 			Function: toolFunction{
 				Name:        "exec_command",
-				Description: "Execute a command inside a running virtual machine and return its output",
+				Description: "Execute a command inside a running virtual machine and return its output. IMPORTANT: Shell pipes (|), redirects (>, >>), and chaining (&&, ;) are NOT supported — each call runs a single command. To pipe, use 'bash -c \"cmd1 | cmd2\"' as the command.",
 				Parameters: json.RawMessage(`{
 					"type":"object",
 					"properties":{

@@ -1,6 +1,7 @@
 package multipass
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -276,6 +277,12 @@ func (c *Client) StopAll() error {
 func (c *Client) ExecInVM(vmName string, command []string) (string, error) {
 	args := append([]string{"exec", vmName, "--"}, command...)
 	return c.run(args...)
+}
+
+// ExecInVMWithContext runs a command inside a VM with a context for timeout/cancellation.
+func (c *Client) ExecInVMWithContext(ctx context.Context, vmName string, command []string) (string, error) {
+	args := append([]string{"exec", vmName, "--"}, command...)
+	return c.runWithContext(ctx, args...)
 }
 
 // GetRawInfo returns the raw text output of multipass info for a VM.

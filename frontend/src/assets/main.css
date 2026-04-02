@@ -49,6 +49,15 @@ body {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
+/* Subtle pulse for active stop button */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 1.5s ease-in-out infinite;
+}
+
 /* Tab indicator slide */
 .tab-indicator {
   transition: left 0.2s ease, width 0.2s ease;

@@ -2,6 +2,7 @@ package multipass
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -38,6 +39,25 @@ func (c *Client) defaultRunner(args ...string) (string, error) {
 	c.logger.Debug("exec", "cmd", "multipass "+strings.Join(args, " "))
 	err := cmd.Run()
 	if err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		c.logger.Error("exec failed", "cmd", "multipass "+strings.Join(args, " "), "err", err, "stderr", errMsg)
+		return "", fmt.Errorf("command failed: %w\nStderr: %s", err, errMsg)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// runWithContext executes a multipass command with a context for cancellation/timeout.
+func (c *Client) runWithContext(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "multipass", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	c.logger.Debug("exec", "cmd", "multipass "+strings.Join(args, " "))
+	err := cmd.Run()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("command timed out after deadline exceeded")
+		}
 		errMsg := strings.TrimSpace(stderr.String())
 		c.logger.Error("exec failed", "cmd", "multipass "+strings.Join(args, " "), "err", err, "stderr", errMsg)
 		return "", fmt.Errorf("command failed: %w\nStderr: %s", err, errMsg)

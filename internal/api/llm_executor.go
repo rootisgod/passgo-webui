@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
 )
@@ -127,7 +129,9 @@ func (s *Server) executeTool(toolName string, argsJSON string) (string, error) {
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		output, err := s.mp.ExecInVM(args.VM, args.Command)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		output, err := s.mp.ExecInVMWithContext(ctx, args.VM, args.Command)
 		if err != nil {
 			return toolError(err), nil
 		}

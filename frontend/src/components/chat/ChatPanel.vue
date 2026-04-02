@@ -169,7 +169,7 @@ function send() {
           <button
             v-if="chatStore.isStreaming"
             @click="chatStore.cancelStream"
-            class="p-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors flex-shrink-0"
+            class="p-2 rounded bg-red-600 text-white hover:bg-red-700 transition-colors flex-shrink-0 animate-pulse-subtle"
             title="Stop"
           >
             <Square class="w-4 h-4" />

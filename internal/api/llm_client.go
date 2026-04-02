@@ -56,7 +56,7 @@ type streamEvent struct {
 	Content string
 }
 
-var llmHTTPClient = &http.Client{Timeout: 120 * time.Second}
+var llmHTTPClient = &http.Client{Timeout: 5 * time.Minute}
 
 // llmChat makes a non-streaming call to the OpenAI-compatible chat completions endpoint.
 // Used during the tool-calling loop where we need the full response before proceeding.

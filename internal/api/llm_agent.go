@@ -216,7 +216,7 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 			eventCh <- sseEvent{
 				Type:   "tool_done",
 				Name:   tc.Function.Name,
-				Result: truncate(result, 500),
+				Result: truncate(result, 2000),
 			}
 
 			messages = append(messages, chatMessage{
