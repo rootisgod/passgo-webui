@@ -132,8 +132,9 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 
 		// Stream any intermediate text the LLM produced alongside tool calls
 		// (e.g. "I'll install microk8s now...") so the user sees progress.
-		if msg.Content != "" {
-			eventCh <- sseEvent{Type: "token", Content: msg.Content}
+		// Trim to avoid injecting leading/trailing blank lines into the chat.
+		if trimmed := strings.TrimSpace(msg.Content); trimmed != "" {
+			eventCh <- sseEvent{Type: "token", Content: trimmed + "\n\n"}
 		}
 
 		// Bulk operation detection: if 2+ state-changing tools in one response,

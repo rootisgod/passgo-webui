@@ -6,6 +6,9 @@
 export function renderMarkdown(text) {
   if (!text) return ''
 
+  // Collapse excessive blank lines before processing (LLMs often emit 3+ consecutive newlines)
+  text = text.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n+$/, '')
+
   // Escape HTML entities first
   let html = text
     .replace(/&/g, '&amp;')
@@ -84,10 +87,7 @@ export function renderMarkdown(text) {
     output.push(listType === 'ul' ? '</ul>' : '</ol>')
   }
 
-  // Collapse runs of 3+ newlines into a double newline (one blank line max)
-  let result = output.join('\n')
-  result = result.replace(/\n{3,}/g, '\n\n')
-  return result
+  return output.join('\n')
 }
 
 /** Apply inline formatting: bold, italic, inline code */
