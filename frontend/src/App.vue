@@ -12,6 +12,7 @@ import HostPanel from './components/host/HostPanel.vue'
 import VmDetailPanel from './components/vm/VmDetailPanel.vue'
 import CloudInitPanel from './components/cloudinit/CloudInitPanel.vue'
 import Toast from './components/shared/Toast.vue'
+import ChatPanel from './components/chat/ChatPanel.vue'
 
 const store = useVmStore()
 const checkingAuth = ref(true)
@@ -59,6 +60,7 @@ usePolling(() => {
             <VmDetailPanel v-else :key="store.selectedNode" />
           </Transition>
         </main>
+        <ChatPanel />
       </div>
       <StatusBar />
     </div>

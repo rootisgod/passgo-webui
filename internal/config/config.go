@@ -7,6 +7,13 @@ import (
 	"path/filepath"
 )
 
+type LLMConfig struct {
+	BaseURL  string `json:"base_url"`
+	APIKey   string `json:"api_key,omitempty"`
+	Model    string `json:"model"`
+	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -15,6 +22,7 @@ type Config struct {
 	Password      string            `json:"password"`
 	Groups        []string          `json:"groups,omitempty"`
 	VMGroups      map[string]string `json:"vm_groups,omitempty"`
+	LLM           *LLMConfig        `json:"llm,omitempty"`
 }
 
 func DefaultConfigPath() string {
@@ -53,6 +61,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.VMGroups == nil {
 		cfg.VMGroups = make(map[string]string)
+	}
+	if cfg.LLM == nil {
+		cfg.LLM = &LLMConfig{
+			BaseURL: "https://openrouter.ai/api/v1",
+			Model:   "anthropic/claude-sonnet-4",
+		}
 	}
 	return &cfg, nil
 }

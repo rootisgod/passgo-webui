@@ -114,6 +114,11 @@ export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/sh
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)
 export const deleteShellSession = (vmName, sessionId) => request('DELETE', `/vms/${vmName}/shell/sessions/${sessionId}`)
 
+// Chat / LLM
+export const getChatConfig = () => request('GET', '/chat/config')
+export const updateChatConfig = (cfg) => request('PUT', '/chat/config', cfg)
+export const listChatModels = () => request('GET', '/chat/models')
+
 // Auth
 export const login = (username, password) => request('POST', '/auth/login', { username, password })
 export const logout = () => request('POST', '/auth/logout')

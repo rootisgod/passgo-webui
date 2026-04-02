@@ -106,6 +106,12 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("PUT /api/v1/groups/{name}", s.handleRenameGroup)
 	mux.HandleFunc("DELETE /api/v1/groups/{name}", s.handleDeleteGroup)
 
+	// Chat / LLM
+	mux.HandleFunc("POST /api/v1/chat", s.handleChat)
+	mux.HandleFunc("GET /api/v1/chat/config", s.handleGetChatConfig)
+	mux.HandleFunc("PUT /api/v1/chat/config", s.handleUpdateChatConfig)
+	mux.HandleFunc("GET /api/v1/chat/models", s.handleListModels)
+
 	// Shell sessions
 	mux.HandleFunc("POST /api/v1/vms/{name}/shell/sessions", s.handleCreateShellSession)
 	mux.HandleFunc("GET /api/v1/vms/{name}/shell/sessions", s.handleListShellSessions)
