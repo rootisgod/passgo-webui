@@ -87,6 +87,12 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 			return
 		}
 
+		// Stream any intermediate text the LLM produced alongside tool calls
+		// (e.g. "I'll install microk8s now...") so the user sees progress.
+		if msg.Content != "" {
+			eventCh <- sseEvent{Type: "token", Content: msg.Content}
+		}
+
 		// Bulk operation detection: if 2+ state-changing tools in one response,
 		// require user confirmation before executing any of them.
 		stateChangingCount := 0
@@ -333,6 +339,7 @@ RULES:
 4. NEVER perform bulk destructive operations (deleting, stopping, or suspending multiple VMs) from a single user message. List exactly which VMs will be affected and ask for confirmation first.
 5. When exec_command is used, show the user the exact command that will be executed before running it.
 6. Do not chain multiple destructive actions in a single turn — execute one, report the result, and wait for the next instruction.
+7. ALWAYS include a brief text explanation alongside your tool calls. Before each step, explain what you are about to do and why (e.g. "Installing microk8s via snap..." or "Configuring kubectl access..."). This is critical — the user sees your text as progress updates during long-running operations. Never call tools silently without explanation.
 
 `)
 
