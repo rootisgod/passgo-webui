@@ -84,7 +84,10 @@ export function renderMarkdown(text) {
     output.push(listType === 'ul' ? '</ul>' : '</ol>')
   }
 
-  return output.join('\n')
+  // Collapse runs of 3+ newlines into a double newline (one blank line max)
+  let result = output.join('\n')
+  result = result.replace(/\n{3,}/g, '\n\n')
+  return result
 }
 
 /** Apply inline formatting: bold, italic, inline code */
