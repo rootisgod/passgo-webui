@@ -121,7 +121,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 
 ### Backend (Go)
 - All multipass CLI interaction goes through `pkg/multipass/Client` methods using `c.run()` (which wraps `exec.Command("multipass", ...)`)
-- API handlers are grouped by domain: `handlers_vms.go`, `handlers_system.go`, `handlers_cloudinit.go`, `handlers_groups.go`, `handlers_shell.go`
+- API handlers are grouped by domain: `handlers_vms.go`, `handlers_system.go`, `handlers_cloudinit.go`, `handlers_groups.go`, `handlers_shell.go`, `handlers_chat.go`
 - Response helpers: `writeJSON(w, status, v)`, `writeError(w, status, msg)`, `writeMessage(w, msg)` in `responses.go`
 - Path parameters via Go 1.22+ `r.PathValue("name")`
 - File safety: all user-facing file operations validate with `sanitizeTemplateName()` (regex + filepath.Rel check)
@@ -130,10 +130,15 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Platform-specific PTY code split via build tags: `pty_store_unix.go` (creack/pty) and `pty_store_windows.go` (conpty)
 - VM groups stored in `config.json` as `groups []string` (ordered names) + `vm_groups map[string]string` (VM→group), protected by `groupMu` mutex
 - Embedded assets use `//go:embed` in `cmd/server/main.go` and are passed to `api.NewServer()`
+- LLM chat agent loop in `llm_agent.go`: orchestrates non-streaming tool calls then streams final response via SSE. System prompt refreshed every iteration with live VM/group state. Write-tool iterations capped at 50; read-only tools unlimited.
+- LLM client in `llm_client.go`: OpenAI-compatible HTTP client (works with OpenRouter, Ollama, any `/v1/chat/completions` endpoint). Non-streaming mode for tool loop, streaming for final response.
+- LLM tool definitions in `llm_tools.go`: 19 tools mapping to `multipass.Client` methods + config group operations. Tools classified as `readOnlyTools` (list/info) and `destructiveTools` (delete/restore, require user confirmation).
+- LLM tool executor in `llm_executor.go`: switch dispatch from tool name to client method. Group tools use `groupMu` mutex + `config.Save()`. Tool errors returned as JSON for LLM to explain, not Go errors.
+- LLM config in `config.go`: `LLMConfig` struct with `base_url`, `api_key`, `model`, `read_only` fields, nested under `Config.LLM`
 
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
-- State management via Pinia stores (`vmStore.js`, `toastStore.js`)
+- State management via Pinia stores (`vmStore.js`, `toastStore.js`, `chatStore.js`)
 - API calls centralized in `api/client.js` using a single `request()` helper
 - Styling: Tailwind utility classes with CSS custom properties (`var(--bg-primary)`, etc.) defined in `assets/main.css`
 - Modals use `<Teleport to="body">`
@@ -148,6 +153,11 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Console supports multiple tabs per VM: each tab is an independent PTY session via `ConsoleTerminal.vue`, managed by `VmConsoleTab.vue` as a tab container; all terminals stay mounted (using `invisible` class) so WebSocket connections persist when switching tabs
 - VM groups in sidebar: collapsible folder nodes with state badges, group context menu (start/stop/delete all, rename, delete group), "Move to Group..." in VM context menu
 - `useWebSocket.js` composable is a factory (not singleton) — each terminal instance creates its own
+- LLM chat panel (`ChatPanel.vue`): right-side blade, slides in/out, SSE streaming via fetch ReadableStream. Chat history persisted to localStorage. Markdown rendering via `useMarkdown.js` composable (code blocks, inline code, bold, italic, lists — no external dependency).
+- Chat store (`chatStore.js`): IMPORTANT — all message mutations during SSE streaming must go through `this.messages[idx]` (reactive proxy), never a local variable reference. Local refs bypass Vue reactivity and the UI won't update.
+- Destructive tool calls (delete_vm, restore_snapshot, delete_snapshot) require user confirmation via `confirm_required` SSE event → frontend confirmation banner → re-send with `confirmed_tools` array.
+- Chat settings modal with searchable model dropdown fetched from provider's `/models` endpoint. "Connect" button saves key + fetches models. Read-only mode toggle restricts LLM to informational tools only.
+- Auto-refresh: `tool_done` events for state-changing tools trigger `vmStore.fetchVMs()` immediately
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
@@ -169,6 +179,7 @@ Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (l
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
+Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 ```
 
 ### Frontend Component Tree
@@ -194,6 +205,9 @@ App.vue
 │   ├── VmMountsTab.vue
 │   ├── VmTransferTab.vue (file browser, power-on guard)
 │   └── VmConfigTab.vue
+├── ChatPanel.vue (right-side blade, SSE streaming, confirmation banner)
+│   ├── ChatMessage.vue (user/assistant bubbles, markdown rendering, tool status)
+│   └── ChatSettingsModal.vue (provider presets, API key + Connect, model dropdown, read-only toggle)
 ├── StatusBar.vue
 └── Toast.vue
 ```
