@@ -16,6 +16,7 @@ const toasts = useToastStore()
 const templates = ref([])
 const selectedTemplate = ref(null)
 const editorContent = ref('')
+const originalContent = ref('')
 const newFileName = ref('')
 const isNew = ref(false)
 const saving = ref(false)
@@ -58,6 +59,7 @@ async function selectTemplate(tmpl) {
     const result = await api.getCloudInitTemplate(tmpl.label)
     selectedTemplate.value = { ...tmpl, builtIn: result.builtIn || tmpl.builtIn }
     editorContent.value = result.content
+    originalContent.value = result.content
     isNew.value = false
     dirty.value = false
   } catch (e) {
@@ -69,6 +71,7 @@ function startNew() {
   if (dirty.value && !confirm('Discard unsaved changes?')) return
   selectedTemplate.value = null
   editorContent.value = DEFAULT_TEMPLATE
+  originalContent.value = DEFAULT_TEMPLATE
   newFileName.value = ''
   isNew.value = true
   dirty.value = false
@@ -85,7 +88,7 @@ function copyToEdit() {
 
 function onContentChange(val) {
   editorContent.value = val
-  dirty.value = true
+  dirty.value = val !== originalContent.value
 }
 
 function onValidation(v) {
