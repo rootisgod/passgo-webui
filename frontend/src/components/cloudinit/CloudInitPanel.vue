@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
 import CloudInitEditor from './CloudInitEditor.vue'
@@ -139,7 +139,13 @@ async function confirmDelete() {
   showDeleteConfirm.value = false
 }
 
-onMounted(loadTemplates)
+onMounted(() => {
+  loadTemplates()
+  window.addEventListener('cloud-init-changed', loadTemplates)
+})
+onUnmounted(() => {
+  window.removeEventListener('cloud-init-changed', loadTemplates)
+})
 </script>
 
 <template>

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ScanCloudInitTemplates finds YAML files with "#cloud-config" header in the given directories.
@@ -141,6 +143,25 @@ func CleanupTempDirs(dirs []string) {
 			os.RemoveAll(d)
 		}
 	}
+}
+
+// ValidateCloudInitYAML checks that content is valid cloud-init YAML.
+// Returns nil if valid, or an error describing the problem.
+func ValidateCloudInitYAML(content string) error {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return fmt.Errorf("content is empty")
+	}
+	lines := strings.SplitN(trimmed, "\n", 2)
+	if strings.TrimSpace(lines[0]) != "#cloud-config" {
+		return fmt.Errorf("first line must be '#cloud-config'")
+	}
+	// Parse as YAML to catch syntax errors
+	var doc any
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return fmt.Errorf("invalid YAML: %w", err)
+	}
+	return nil
 }
 
 // sanitizeTemplateName validates a template filename and returns the safe absolute path within baseDir.

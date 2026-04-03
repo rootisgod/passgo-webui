@@ -8,6 +8,11 @@ const stateChangingTools = new Set([
   'create_vm', 'create_snapshot', 'restore_snapshot', 'delete_snapshot',
   'exec_command',
   'create_group', 'rename_group', 'delete_group', 'assign_vm_to_group',
+  'create_cloud_init_template', 'update_cloud_init_template', 'delete_cloud_init_template',
+])
+
+const cloudInitTools = new Set([
+  'create_cloud_init_template', 'update_cloud_init_template', 'delete_cloud_init_template',
 ])
 
 let nextId = 1
@@ -255,6 +260,10 @@ export const useChatStore = defineStore('chat', {
                   if (stateChangingTools.has(event.name)) {
                     const vmStore = useVmStore()
                     vmStore.fetchVMs()
+                  }
+                  // Refresh cloud-init panel after template changes
+                  if (cloudInitTools.has(event.name)) {
+                    window.dispatchEvent(new Event('cloud-init-changed'))
                   }
                 }
                 break

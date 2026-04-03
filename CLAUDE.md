@@ -132,7 +132,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Embedded assets use `//go:embed` in `cmd/server/main.go` and are passed to `api.NewServer()`
 - LLM chat agent loop in `llm_agent.go`: orchestrates non-streaming tool calls then streams final response via SSE. System prompt refreshed every iteration with live VM/group state. Write-tool iterations capped at 50; read-only tools unlimited.
 - LLM client in `llm_client.go`: OpenAI-compatible HTTP client (works with OpenRouter, Ollama, any `/v1/chat/completions` endpoint). Non-streaming mode for tool loop, streaming for final response.
-- LLM tool definitions in `llm_tools.go`: 19 tools mapping to `multipass.Client` methods + config group operations. Tools classified as `readOnlyTools` (list/info) and `destructiveTools` (delete/restore, require user confirmation).
+- LLM tool definitions in `llm_tools.go`: 24 tools mapping to `multipass.Client` methods + config group operations + cloud-init template CRUD. Tools classified as `readOnlyTools` (list/info/get) and `destructiveTools` (delete/restore, require user confirmation).
 - LLM tool executor in `llm_executor.go`: switch dispatch from tool name to client method. Group tools use `groupMu` mutex + `config.Save()`. Tool errors returned as JSON for LLM to explain, not Go errors.
 - LLM config in `config.go`: `LLMConfig` struct with `base_url`, `api_key`, `model`, `read_only` fields, nested under `Config.LLM`
 

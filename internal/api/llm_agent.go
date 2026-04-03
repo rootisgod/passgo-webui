@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
 const (
@@ -111,21 +113,32 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 
 		// If no tool calls, this is the final text response — re-stream it
 		if len(msg.ToolCalls) == 0 {
-			// Remove the non-streamed assistant message and re-call with streaming
-			// so the user sees tokens appear progressively
-			messages = messages[:len(messages)-1]
-			streamCh, err := llmChatStream(ctx, cfg, messages)
-			if err != nil {
-				// Fallback: send the non-streamed content as-is
-				if msg.Content != "" {
+			// If the non-streamed response already has content, try to re-stream
+			// for progressive display. If not, fall back to the non-streamed content.
+			if msg.Content != "" {
+				messages = messages[:len(messages)-1]
+				streamCh, err := llmChatStream(ctx, cfg, messages)
+				if err != nil {
+					// Fallback: send the non-streamed content as-is
+					eventCh <- sseEvent{Type: "token", Content: msg.Content}
+					return
+				}
+				hasContent := false
+				for ev := range streamCh {
+					if ev.Type == "token" {
+						eventCh <- sseEvent{Type: "token", Content: ev.Content}
+						hasContent = true
+					}
+				}
+				// If streaming produced nothing, send the non-streamed content
+				if !hasContent {
 					eventCh <- sseEvent{Type: "token", Content: msg.Content}
 				}
-				return
-			}
-			for ev := range streamCh {
-				if ev.Type == "token" {
-					eventCh <- sseEvent{Type: "token", Content: ev.Content}
-				}
+			} else {
+				// LLM returned empty content with no tool calls — may happen after
+				// errors or context exhaustion. Send an informative fallback.
+				s.logger.Warn("LLM returned empty response with no tool calls")
+				eventCh <- sseEvent{Type: "token", Content: "I encountered an issue processing that request. Please try again or start a new conversation if the context has grown too large."}
 			}
 			return
 		}
@@ -378,6 +391,7 @@ YOUR TOOLS:
 - Execution: exec_command (run commands inside a VM)
 - Networks: list_networks
 - Groups: list_groups, create_group, rename_group, delete_group, assign_vm_to_group (organize VMs into named groups)
+- Cloud-Init: list_cloud_init_templates, get_cloud_init_template, create_cloud_init_template, update_cloud_init_template, delete_cloud_init_template (manage cloud-init templates for VM provisioning)
 
 IMPORTANT: The CURRENT VM STATE below is always authoritative and up-to-date. If the conversation history references VMs that are not listed below, those VMs no longer exist — the user may have created, deleted, or modified VMs outside this chat. Always trust the current state over anything in the conversation history.
 
@@ -389,6 +403,41 @@ RULES:
 5. When exec_command is used, show the user the exact command that will be executed before running it.
 6. Do not chain multiple destructive actions in a single turn — execute one, report the result, and wait for the next instruction.
 7. ALWAYS include a brief text explanation alongside your tool calls. Before each step, explain what you are about to do and why (e.g. "Installing microk8s via snap..." or "Configuring kubectl access..."). This is critical — the user sees your text as progress updates during long-running operations. Never call tools silently without explanation.
+8. CLOUD-INIT BEST PRACTICES (these VMs are always Ubuntu on Multipass):
+   YAML FORMAT:
+   - Content must start with "#cloud-config" on the first line. Filenames must end in .yaml or .yml.
+   - Always quote string values containing colons, exclamation marks, or special characters. Use block scalars (|) for multi-line strings in runcmd.
+   - YAML gotcha: "yes", "no", "true", "false", "on", "off" are interpreted as booleans — quote them if meant as strings.
+
+   WORKFLOW:
+   - When the user asks to create a VM with software, ALWAYS create a cloud-init template first, then use create_vm with the cloud_init parameter. Never manually install software via exec_command when cloud-init can do it.
+   - After creating a VM with cloud-init, tell the user they can check progress on the Summary tab (cloud-init status) or via exec_command: cloud-init status --wait.
+
+   UBUNTU/MULTIPASS SPECIFICS:
+   - The default user is 'ubuntu' with home at /home/ubuntu. cloud-init runs as root.
+   - For user-specific operations (dotfiles, aliases, permissions), target 'ubuntu' explicitly (chown ubuntu:ubuntu).
+   - Use 'package_update: true' and 'package_upgrade: true' instead of 'apt-get update/upgrade' in runcmd.
+   - Use the 'packages' list for apt packages — cloud-init handles retries and locking. Don't use apt in runcmd unless you need specific flags.
+   - For PPAs or third-party repos, use 'apt' sources config (apt: sources:) rather than add-apt-repository in runcmd.
+   - Use 'snap' module for snap installs where possible. In runcmd, add 'snap wait system seed.loaded' before any snap commands.
+   - /etc/profile.d/*.sh scripts are sourced on login — use write_files to drop PATH or alias scripts there.
+   - Group membership changes (usermod -aG) require logout/login. Note this to the user.
+   - Multipass VMs have internet access by default. No proxy config needed unless user specifies.
+
+   CLOUD-INIT MODULES (preferred order in the YAML):
+   - package_update, package_upgrade (top) — run apt update/upgrade
+   - packages — list of apt packages to install
+   - snap — snap packages (e.g. {name: go, channel: latest/stable, classic: true})
+   - write_files — create config files, scripts, aliases BEFORE runcmd runs
+   - runcmd — shell commands, run in order, each as root. Use ["bash", "-c", "..."] for pipes/redirects.
+   - final_message — confirmation string (always quote it)
+
+   COMMON PATTERNS:
+   - write_files for /etc/profile.d/aliases.sh is better than echo >> .bashrc in runcmd.
+   - For services that need enabling: use 'systemctl enable --now <service>' in runcmd.
+   - For downloading binaries: use 'curl -fsSL <url> -o /usr/local/bin/<name> && chmod +x /usr/local/bin/<name>'.
+   - For docker: package 'docker.io' and 'usermod -aG docker ubuntu' in runcmd. Remind user to re-login.
+   - For microk8s: snap install, 'microk8s status --wait-ready', enable addons ONE AT A TIME, then configure kubectl.
 
 `)
 
@@ -446,6 +495,29 @@ RULES:
 				sb.WriteString(fmt.Sprintf("- %s: %s\n", g, strings.Join(members, ", ")))
 			} else {
 				sb.WriteString(fmt.Sprintf("- %s: (empty)\n", g))
+			}
+		}
+	}
+
+	// Include cloud-init template list
+	var dirs []string
+	if s.cfg.CloudInitDir != "" {
+		dirs = append(dirs, s.cfg.CloudInitDir)
+	}
+	templates, _ := s.mp.GetAllCloudInitTemplates(dirs)
+	entries, _ := s.builtinTemplatesFS.ReadDir("cloud-init")
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			templates = append(templates, multipass.TemplateOption{Label: entry.Name(), BuiltIn: true})
+		}
+	}
+	if len(templates) > 0 {
+		sb.WriteString(fmt.Sprintf("\nCLOUD-INIT TEMPLATES (%d):\n", len(templates)))
+		for _, t := range templates {
+			if t.BuiltIn {
+				sb.WriteString(fmt.Sprintf("- %s (built-in)\n", t.Label))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %s\n", t.Label))
 			}
 		}
 	}

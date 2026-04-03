@@ -17,18 +17,21 @@ var allowedTools map[string]bool
 
 // readOnlyTools are tools safe to expose in read-only mode.
 var readOnlyTools = map[string]bool{
-	"list_vms":       true,
-	"get_vm_info":    true,
-	"list_snapshots": true,
-	"list_networks":  true,
-	"list_groups":    true,
+	"list_vms":                   true,
+	"get_vm_info":                true,
+	"list_snapshots":             true,
+	"list_networks":              true,
+	"list_groups":                true,
+	"list_cloud_init_templates":  true,
+	"get_cloud_init_template":    true,
 }
 
 // destructiveTools require user confirmation before execution.
 var destructiveTools = map[string]bool{
-	"delete_vm":         true,
-	"restore_snapshot":  true,
-	"delete_snapshot":   true,
+	"delete_vm":                  true,
+	"restore_snapshot":           true,
+	"delete_snapshot":            true,
+	"delete_cloud_init_template": true,
 }
 
 var chatTools []toolDef
@@ -132,7 +135,7 @@ func init() {
 			Type: "function",
 			Function: toolFunction{
 				Name:        "create_vm",
-				Description: "Create and launch a new virtual machine. All parameters are optional — defaults will be used if omitted. VM names must be unique — check the current VM state before choosing a name to avoid conflicts with existing or in-progress VMs.",
+				Description: "Create and launch a new virtual machine. All parameters are optional — defaults will be used if omitted. VM names must be unique — check the current VM state before choosing a name to avoid conflicts with existing or in-progress VMs. Use cloud_init to apply a cloud-init template during launch — this is far more reliable than running commands manually via exec_command after creation.",
 				Parameters: json.RawMessage(`{
 					"type":"object",
 					"properties":{
@@ -140,7 +143,8 @@ func init() {
 						"image":{"type":"string","description":"Ubuntu image/release to use (e.g. '24.04', 'noble'). Defaults to latest LTS."},
 						"cpus":{"type":"integer","description":"Number of CPUs","default":1},
 						"memory_mb":{"type":"integer","description":"Memory in megabytes","default":1024},
-						"disk_gb":{"type":"integer","description":"Disk size in gigabytes","default":5}
+						"disk_gb":{"type":"integer","description":"Disk size in gigabytes","default":5},
+						"cloud_init":{"type":"string","description":"Name of a cloud-init template to apply (e.g. 'install-docker.yaml'). Use list_cloud_init_templates to see available templates."}
 					}
 				}`),
 			},
@@ -291,6 +295,73 @@ func init() {
 						"group":{"type":"string","description":"Name of the group to assign to, or empty string to unassign"}
 					},
 					"required":["vm","group"]
+				}`),
+			},
+		},
+		// Cloud-Init templates
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "list_cloud_init_templates",
+				Description: "List all available cloud-init templates (both built-in and user-created)",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "get_cloud_init_template",
+				Description: "Get the content of a specific cloud-init template by name",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Template filename (e.g. 'docker-setup.yaml')"}
+					},
+					"required":["name"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "create_cloud_init_template",
+				Description: "Create a new cloud-init template file. Content MUST start with '#cloud-config' on the first line and be valid YAML. Filename must end in .yaml or .yml.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Template filename (must end in .yaml or .yml, e.g. 'docker-setup.yaml')"},
+						"content":{"type":"string","description":"Cloud-init YAML content (must start with '#cloud-config')"}
+					},
+					"required":["name","content"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "update_cloud_init_template",
+				Description: "Update an existing user-created cloud-init template. Cannot modify built-in templates.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Template filename to update"},
+						"content":{"type":"string","description":"New cloud-init YAML content (must start with '#cloud-config')"}
+					},
+					"required":["name","content"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "delete_cloud_init_template",
+				Description: "Delete a user-created cloud-init template. Cannot delete built-in templates.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Template filename to delete"}
+					},
+					"required":["name"]
 				}`),
 			},
 		},

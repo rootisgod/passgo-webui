@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -116,15 +118,46 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 
 	case "create_vm":
 		var args struct {
-			Name     string `json:"name"`
-			Image    string `json:"image"`
-			CPUs     int    `json:"cpus"`
-			MemoryMB int    `json:"memory_mb"`
-			DiskGB   int    `json:"disk_gb"`
+			Name      string `json:"name"`
+			Image     string `json:"image"`
+			CPUs      int    `json:"cpus"`
+			MemoryMB  int    `json:"memory_mb"`
+			DiskGB    int    `json:"disk_gb"`
+			CloudInit string `json:"cloud_init"`
 		}
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
+
+		// Resolve cloud-init template name to a file path
+		var cloudInitFile string
+		var tmpCloudInit string
+		if args.CloudInit != "" {
+			// Check built-in templates first
+			if data, err := s.builtinTemplatesFS.ReadFile("cloud-init/" + args.CloudInit); err == nil {
+				tmp := filepath.Join(os.TempDir(), "passgo-cloudinit-"+args.CloudInit)
+				if err := os.WriteFile(tmp, data, 0600); err != nil {
+					return toolError(fmt.Errorf("failed to prepare cloud-init template: %w", err)), nil
+				}
+				cloudInitFile = tmp
+				tmpCloudInit = tmp
+			} else if s.cfg.CloudInitDir != "" {
+				// Try user templates
+				content, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.CloudInit)
+				if err != nil {
+					return toolError(fmt.Errorf("cloud-init template '%s' not found", args.CloudInit)), nil
+				}
+				tmp := filepath.Join(os.TempDir(), "passgo-cloudinit-"+args.CloudInit)
+				if err := os.WriteFile(tmp, []byte(content), 0600); err != nil {
+					return toolError(fmt.Errorf("failed to prepare cloud-init template: %w", err)), nil
+				}
+				cloudInitFile = tmp
+				tmpCloudInit = tmp
+			} else {
+				return toolError(fmt.Errorf("cloud-init template '%s' not found", args.CloudInit)), nil
+			}
+		}
+
 		// Launch asynchronously and poll for completion, sending progress updates
 		vmName := args.Name
 		if vmName == "" {
@@ -136,7 +169,11 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		}
 		done := make(chan launchResult, 1)
 		go func() {
-			name, err := s.mp.LaunchVM(args.Name, args.Image, args.CPUs, args.MemoryMB, args.DiskGB, "", "")
+			name, err := s.mp.LaunchVM(args.Name, args.Image, args.CPUs, args.MemoryMB, args.DiskGB, cloudInitFile, "")
+			// Clean up temp file
+			if tmpCloudInit != "" {
+				os.Remove(tmpCloudInit)
+			}
 			done <- launchResult{name, err}
 		}()
 		// Poll with progress updates every 5 seconds
@@ -335,6 +372,119 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 			action = "unassigned"
 		}
 		return fmt.Sprintf(`{"status":"%s","vm":"%s","group":"%s"}`, action, args.VM, args.Group), nil
+
+	case "list_cloud_init_templates":
+		var dirs []string
+		if s.cfg.CloudInitDir != "" {
+			dirs = append(dirs, s.cfg.CloudInitDir)
+		}
+		templates, err := s.mp.GetAllCloudInitTemplates(dirs)
+		if err != nil {
+			templates = nil
+		}
+		// Merge built-in templates
+		entries, _ := s.builtinTemplatesFS.ReadDir("cloud-init")
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			templates = append(templates, multipass.TemplateOption{
+				Label:   entry.Name(),
+				Path:    "builtin:" + entry.Name(),
+				BuiltIn: true,
+			})
+		}
+		if templates == nil {
+			templates = []multipass.TemplateOption{}
+		}
+		return toJSON(templates), nil
+
+	case "get_cloud_init_template":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		// Check built-in templates first
+		if data, err := s.builtinTemplatesFS.ReadFile("cloud-init/" + args.Name); err == nil {
+			return toJSON(map[string]any{"name": args.Name, "content": string(data), "builtIn": true}), nil
+		}
+		if s.cfg.CloudInitDir == "" {
+			return toolError(fmt.Errorf("template '%s' not found", args.Name)), nil
+		}
+		content, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name)
+		if err != nil {
+			return toolError(err), nil
+		}
+		return toJSON(map[string]any{"name": args.Name, "content": content, "builtIn": false}), nil
+
+	case "create_cloud_init_template":
+		var args struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if s.cfg.CloudInitDir == "" {
+			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
+		}
+		if args.Name == "" || args.Content == "" {
+			return toolError(fmt.Errorf("name and content are required")), nil
+		}
+		if err := multipass.ValidateCloudInitYAML(args.Content); err != nil {
+			return toolError(fmt.Errorf("invalid cloud-init content: %w", err)), nil
+		}
+		// Check if already exists
+		if _, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err == nil {
+			return toolError(fmt.Errorf("template '%s' already exists", args.Name)), nil
+		}
+		if err := multipass.WriteCloudInitTemplate(s.cfg.CloudInitDir, args.Name, args.Content); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"created","template":"%s"}`, args.Name), nil
+
+	case "update_cloud_init_template":
+		var args struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if s.cfg.CloudInitDir == "" {
+			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
+		}
+		if args.Content == "" {
+			return toolError(fmt.Errorf("content is required")), nil
+		}
+		if err := multipass.ValidateCloudInitYAML(args.Content); err != nil {
+			return toolError(fmt.Errorf("invalid cloud-init content: %w", err)), nil
+		}
+		// Verify it exists
+		if _, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err != nil {
+			return toolError(fmt.Errorf("template '%s' not found", args.Name)), nil
+		}
+		if err := multipass.WriteCloudInitTemplate(s.cfg.CloudInitDir, args.Name, args.Content); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"updated","template":"%s"}`, args.Name), nil
+
+	case "delete_cloud_init_template":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if s.cfg.CloudInitDir == "" {
+			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
+		}
+		if err := multipass.DeleteCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"deleted","template":"%s"}`, args.Name), nil
 
 	default:
 		return "", fmt.Errorf("unhandled tool: %s", toolName)
