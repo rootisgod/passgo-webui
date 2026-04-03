@@ -63,6 +63,15 @@ type versionResponse struct {
 	Hostname  string `json:"hostname"`
 }
 
+func (s *Server) handleHostResources(w http.ResponseWriter, r *http.Request) {
+	res, err := multipass.GetHostResources()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
 	writeJSON(w, http.StatusOK, versionResponse{

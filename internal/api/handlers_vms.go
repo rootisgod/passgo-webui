@@ -252,6 +252,101 @@ func (s *Server) handleExecInVM(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, execResponse{Stdout: output})
 }
 
+func (s *Server) handleGetVMConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	cfg, err := s.mp.GetVMConfig(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+type resizeVMRequest struct {
+	CPUs     *int `json:"cpus"`
+	MemoryMB *int `json:"memory_mb"`
+	DiskGB   *int `json:"disk_gb"`
+}
+
+func (s *Server) handleResizeVM(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var req resizeVMRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.CPUs == nil && req.MemoryMB == nil && req.DiskGB == nil {
+		writeError(w, http.StatusBadRequest, "no changes requested")
+		return
+	}
+
+	vm, err := s.mp.GetVMInfo(name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// CPU and memory changes require the VM to be stopped
+	if (req.CPUs != nil || req.MemoryMB != nil) && vm.State != "Stopped" {
+		writeError(w, http.StatusConflict, "VM must be stopped to change CPU or memory")
+		return
+	}
+
+	if req.CPUs != nil && *req.CPUs < multipass.MinCPUCores {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("CPUs must be at least %d", multipass.MinCPUCores))
+		return
+	}
+
+	if req.MemoryMB != nil {
+		if *req.MemoryMB < multipass.MinResizeRAMMB {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("memory must be at least %d MB", multipass.MinResizeRAMMB))
+			return
+		}
+		hostRes, hostErr := multipass.GetHostResources()
+		if hostErr == nil && int64(*req.MemoryMB) > hostRes.TotalMemoryMB {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("requested memory (%d MB) exceeds host capacity (%d MB)", *req.MemoryMB, hostRes.TotalMemoryMB))
+			return
+		}
+		if hostErr != nil {
+			s.logger.Warn("could not detect host resources for memory validation", "err", hostErr)
+		}
+	}
+
+	if req.DiskGB != nil {
+		if *req.DiskGB < multipass.MinDiskGB {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("disk must be at least %d GB", multipass.MinDiskGB))
+			return
+		}
+		// Use multipass get for the configured disk size (info returns 0 when stopped)
+		vmCfg, cfgErr := s.mp.GetVMConfig(name)
+		if cfgErr == nil && vmCfg.DiskGB > 0 && int64(*req.DiskGB) < vmCfg.DiskGB {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("disk can only be increased, not decreased (current: %d GB)", vmCfg.DiskGB))
+			return
+		}
+	}
+
+	if req.CPUs != nil {
+		if err := s.mp.SetVMCPUs(name, *req.CPUs); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to set CPUs: "+err.Error())
+			return
+		}
+	}
+	if req.MemoryMB != nil {
+		if err := s.mp.SetVMMemory(name, *req.MemoryMB); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to set memory: "+err.Error())
+			return
+		}
+	}
+	if req.DiskGB != nil {
+		if err := s.mp.SetVMDisk(name, *req.DiskGB); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to set disk: "+err.Error())
+			return
+		}
+	}
+
+	writeMessage(w, "VM configuration updated")
+}
+
 func (s *Server) handleCloudInitStatus(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	status, err := s.mp.GetCloudInitStatus(name)

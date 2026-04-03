@@ -291,6 +291,134 @@ func (c *Client) ExecInVMStreaming(ctx context.Context, vmName string, command [
 	return c.runStreamingContext(ctx, onLine, args...)
 }
 
+// VMConfig holds the configured (not runtime) resource specs for a VM.
+type VMConfig struct {
+	CPUs     int   `json:"cpus"`
+	MemoryMB int64 `json:"memory_mb"`
+	DiskGB   int64 `json:"disk_gb"`
+}
+
+// GetVMConfig reads the configured CPU, memory, and disk for a VM via multipass get.
+// Unlike info, these values are available even when the VM is stopped.
+func (c *Client) GetVMConfig(name string) (VMConfig, error) {
+	var cfg VMConfig
+
+	cpuStr, err := c.run("get", fmt.Sprintf("local.%s.cpus", name))
+	if err != nil {
+		return cfg, fmt.Errorf("get cpus: %w", err)
+	}
+	cfg.CPUs, _ = strconv.Atoi(strings.TrimSpace(cpuStr))
+
+	memStr, err := c.run("get", fmt.Sprintf("local.%s.memory", name))
+	if err != nil {
+		return cfg, fmt.Errorf("get memory: %w", err)
+	}
+	cfg.MemoryMB = parseMemoryToMB(strings.TrimSpace(memStr))
+
+	diskStr, err := c.run("get", fmt.Sprintf("local.%s.disk", name))
+	if err != nil {
+		return cfg, fmt.Errorf("get disk: %w", err)
+	}
+	cfg.DiskGB = parseDiskToGB(strings.TrimSpace(diskStr))
+
+	return cfg, nil
+}
+
+// stripUnitSuffix strips unit suffixes like "GiB", "MiB", "G", "M" and returns
+// the numeric part and the unit letter (G, M, K, T) or 'B' for plain bytes.
+func stripUnitSuffix(s string) (string, byte) {
+	// Handle GiB/MiB/KiB/TiB suffixes (e.g. "1.0GiB")
+	for _, suffix := range []string{"GiB", "MiB", "KiB", "TiB"} {
+		if strings.HasSuffix(s, suffix) {
+			return s[:len(s)-len(suffix)], suffix[0]
+		}
+	}
+	// Handle GB/MB/KB/TB suffixes
+	for _, suffix := range []string{"GB", "MB", "KB", "TB"} {
+		if strings.HasSuffix(s, suffix) {
+			return s[:len(s)-len(suffix)], suffix[0]
+		}
+	}
+	// Handle single-letter suffixes (G, M, K, T)
+	if len(s) > 0 {
+		last := s[len(s)-1]
+		switch last {
+		case 'G', 'g', 'M', 'm', 'K', 'k', 'T', 't':
+			return s[:len(s)-1], last
+		}
+	}
+	return s, 'B' // plain number = bytes
+}
+
+// parseMemoryToMB parses a memory string like "1073741824", "1024M", "1.0GiB" to MB.
+func parseMemoryToMB(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	num, unit := stripUnitSuffix(s)
+	switch unit {
+	case 'G', 'g':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v * 1024)
+	case 'M', 'm':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v)
+	case 'K', 'k':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v / 1024)
+	case 'T', 't':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v * 1024 * 1024)
+	default:
+		// Plain number = bytes
+		v, _ := strconv.ParseInt(num, 10, 64)
+		return v / (1024 * 1024)
+	}
+}
+
+// parseDiskToGB parses a disk string like "5368709120", "8G", "8.0GiB" to GB.
+func parseDiskToGB(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	num, unit := stripUnitSuffix(s)
+	switch unit {
+	case 'G', 'g':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v)
+	case 'M', 'm':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v / 1024)
+	case 'T', 't':
+		v, _ := strconv.ParseFloat(num, 64)
+		return int64(v * 1024)
+	default:
+		// Plain number = bytes
+		v, _ := strconv.ParseInt(num, 10, 64)
+		return v / (1024 * 1024 * 1024)
+	}
+}
+
+// SetVMCPUs changes the number of CPUs allocated to a VM (requires VM to be stopped).
+func (c *Client) SetVMCPUs(name string, cpus int) error {
+	_, err := c.run("set", fmt.Sprintf("local.%s.cpus=%d", name, cpus))
+	return err
+}
+
+// SetVMMemory changes the memory allocated to a VM in MB (requires VM to be stopped).
+func (c *Client) SetVMMemory(name string, memoryMB int) error {
+	_, err := c.run("set", fmt.Sprintf("local.%s.memory=%dM", name, memoryMB))
+	return err
+}
+
+// SetVMDisk changes the disk size of a VM in GB (can only increase, works while running).
+func (c *Client) SetVMDisk(name string, diskGB int) error {
+	_, err := c.run("set", fmt.Sprintf("local.%s.disk=%dG", name, diskGB))
+	return err
+}
+
 // GetRawInfo returns the raw text output of multipass info for a VM.
 func (c *Client) GetRawInfo(name string) (string, error) {
 	return c.run("info", name)

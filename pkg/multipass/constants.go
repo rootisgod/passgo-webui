@@ -7,6 +7,7 @@ const (
 	DefaultDiskGB        = 8
 	MinCPUCores          = 1
 	MinRAMMB             = 512
+	MinResizeRAMMB       = 256
 	MinDiskGB            = 1
 	VMNamePrefix         = "VM-"
 	VMNameRandomLength   = 4

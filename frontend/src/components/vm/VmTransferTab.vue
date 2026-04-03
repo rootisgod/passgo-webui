@@ -9,6 +9,7 @@ const store = useVmStore()
 const toasts = useToastStore()
 const vm = computed(() => store.selectedVm)
 const isRunning = computed(() => vm.value?.state === 'Running')
+const isDeleted = computed(() => vm.value?.state === 'Deleted')
 const starting = ref(false)
 
 async function powerOn() {
@@ -115,8 +116,15 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- VM deleted -->
+  <div v-if="isDeleted" class="flex flex-col items-center justify-center h-full gap-4 text-[var(--text-secondary)]">
+    <PowerOff class="w-12 h-12 text-[var(--muted)]" />
+    <p class="text-lg">VM Deleted</p>
+    <p class="text-sm">Recover this VM to browse files</p>
+  </div>
+
   <!-- VM not running -->
-  <div v-if="!isRunning" class="flex flex-col items-center justify-center h-full gap-4 text-[var(--text-secondary)]">
+  <div v-else-if="!isRunning" class="flex flex-col items-center justify-center h-full gap-4 text-[var(--text-secondary)]">
     <PowerOff class="w-12 h-12 text-[var(--muted)]" />
     <p class="text-lg">Powered Off</p>
     <p class="text-sm">Start the VM to browse files</p>

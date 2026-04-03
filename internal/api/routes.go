@@ -73,6 +73,8 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/vms/{name}/exec", s.handleExecInVM)
 	mux.HandleFunc("GET /api/v1/launches", s.handleListLaunches)
 	mux.HandleFunc("DELETE /api/v1/launches/{name}", s.handleDismissLaunch)
+	mux.HandleFunc("GET /api/v1/vms/{name}/config", s.handleGetVMConfig)
+	mux.HandleFunc("PUT /api/v1/vms/{name}/config", s.handleResizeVM)
 	mux.HandleFunc("GET /api/v1/vms/{name}/cloud-init/status", s.handleCloudInitStatus)
 
 	// File transfer
@@ -93,6 +95,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 
 	// System
 	mux.HandleFunc("GET /api/v1/images", s.handleFindImages)
+	mux.HandleFunc("GET /api/v1/host/resources", s.handleHostResources)
 	mux.HandleFunc("GET /api/v1/networks", s.handleListNetworks)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates", s.handleListCloudInitTemplates)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates/{name}", s.handleGetCloudInitTemplate)

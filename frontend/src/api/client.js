@@ -46,6 +46,9 @@ export const listLaunches = () => request('GET', '/launches')
 export const dismissLaunch = (name) => request('DELETE', `/launches/${encodeURIComponent(name)}`)
 export const cloneVM = (name, destName, snapshot) => request('POST', `/vms/${name}/clone`, { name: destName, snapshot })
 export const getCloudInitStatus = (name) => request('GET', `/vms/${name}/cloud-init/status`)
+export const getVMConfig = (name) => request('GET', `/vms/${name}/config`)
+export const resizeVM = (name, config) => request('PUT', `/vms/${name}/config`, config)
+export const getHostResources = () => request('GET', '/host/resources')
 
 // Snapshots
 export const listSnapshots = (vmName) => request('GET', `/vms/${vmName}/snapshots`)

@@ -182,7 +182,7 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
             label="Start"
             :icon="Play"
             variant="success"
-            :disabled="isRunning"
+            :disabled="isRunning || isDeleted"
             @click="action(() => api.startVM(vm.name), `${vm.name} started`)"
           />
           <ActionButton

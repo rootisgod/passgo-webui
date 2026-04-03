@@ -168,12 +168,14 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 Auth (public):     POST /auth/login, /auth/logout, GET /version
 VMs (protected):   GET/POST /vms, GET /vms/{name}, POST /vms/{name}/start|stop|suspend|recover|clone
                    DELETE /vms/{name}, POST /vms/start-all|stop-all|purge, POST /vms/{name}/exec
+                   GET/PUT /vms/{name}/config (read/resize CPU, memory, disk)
                    GET /vms/{name}/cloud-init/status
 Snapshots:         GET/POST /vms/{name}/snapshots, POST .../restore, DELETE .../{snap}
 Mounts:            GET/POST/DELETE /vms/{name}/mounts
 Cloud-Init:        GET /cloud-init/templates (list all, built-in + user)
                    GET/POST/PUT/DELETE /cloud-init/templates/{name} (CRUD)
 Launches:          GET /launches, DELETE /launches/{name} (async launch tracking)
+Host:              GET /host/resources (CPU count, total RAM)
 Networks:          GET /networks
 Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (list),
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}

@@ -110,7 +110,7 @@ function openContextMenu(event, vm) {
 
   const items = []
 
-  if (!isRunning) {
+  if (!isRunning && !isDeleted) {
     items.push({ label: 'Start', icon: markRaw(Play), action: () => action(() => api.startVM(vm.name), `${vm.name} started`) })
   }
   if (isRunning || isSuspended) {
