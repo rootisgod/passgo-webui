@@ -38,6 +38,7 @@ function persistMessages(messages) {
       role: m.role,
       content: m.content,
       toolEvents: m.toolEvents || undefined,
+      blocks: m.blocks || undefined,
       isError: m.isError || undefined,
     }))
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
@@ -145,8 +146,12 @@ export const useChatStore = defineStore('chat', {
       if (confirmedTools.length > 0) {
         msgIdx = this.messages.findLastIndex(m => m.role === 'assistant')
         if (msgIdx === -1) {
-          this.messages.push({ id: nextId++, role: 'assistant', content: '', toolEvents: [] })
+          this.messages.push({ id: nextId++, role: 'assistant', content: '', toolEvents: [], blocks: [] })
           msgIdx = this.messages.length - 1
+        }
+        // Ensure blocks array exists for confirmation retries
+        if (!this.messages[msgIdx].blocks) {
+          this.messages[msgIdx].blocks = []
         }
       } else {
         this.messages.push({
@@ -154,6 +159,7 @@ export const useChatStore = defineStore('chat', {
           role: 'assistant',
           content: '',
           toolEvents: [],
+          blocks: [],  // ordered mix of { type: 'text', content } and { type: 'tool', ...toolEvent }
         })
         msgIdx = this.messages.length - 1
       }
@@ -205,14 +211,28 @@ export const useChatStore = defineStore('chat', {
             switch (event.type) {
               case 'token':
                 this.messages[msgIdx].content += event.content
+                // Append to last text block or create a new one
+                {
+                  const blocks = this.messages[msgIdx].blocks
+                  const last = blocks.length > 0 ? blocks[blocks.length - 1] : null
+                  if (last && last.type === 'text') {
+                    last.content += event.content
+                  } else {
+                    blocks.push({ type: 'text', content: event.content })
+                  }
+                }
                 break
               case 'tool_start':
-                this.messages[msgIdx].toolEvents.push({
-                  name: event.name,
-                  args: event.args,
-                  status: 'running',
-                  result: null,
-                })
+                {
+                  const toolEvent = {
+                    name: event.name,
+                    args: event.args,
+                    status: 'running',
+                    result: null,
+                  }
+                  this.messages[msgIdx].toolEvents.push(toolEvent)
+                  this.messages[msgIdx].blocks.push({ type: 'tool', ...toolEvent })
+                }
                 break
               case 'tool_done':
                 {
@@ -222,6 +242,14 @@ export const useChatStore = defineStore('chat', {
                   if (te) {
                     te.status = 'done'
                     te.result = event.result
+                  }
+                  // Also update the block entry
+                  const block = this.messages[msgIdx].blocks.find(
+                    b => b.type === 'tool' && b.name === event.name && b.status === 'running'
+                  )
+                  if (block) {
+                    block.status = 'done'
+                    block.result = event.result
                   }
                   // Refresh VM list immediately after state-changing tools
                   if (stateChangingTools.has(event.name)) {
@@ -238,6 +266,12 @@ export const useChatStore = defineStore('chat', {
                   if (te) {
                     te.progress = event.content
                   }
+                  const block = this.messages[msgIdx].blocks.find(
+                    b => b.type === 'tool' && b.name === event.name && b.status === 'running'
+                  )
+                  if (block) {
+                    block.progress = event.content
+                  }
                 }
                 break
               case 'confirm_required':
@@ -248,6 +282,13 @@ export const useChatStore = defineStore('chat', {
                   if (te) {
                     te.status = 'pending_confirm'
                     te.result = event.description
+                  }
+                  const block = this.messages[msgIdx].blocks.find(
+                    b => b.type === 'tool' && b.name === event.name && b.status === 'running'
+                  )
+                  if (block) {
+                    block.status = 'pending_confirm'
+                    block.result = event.description
                   }
                   this.pendingConfirmation = {
                     confirmId: event.confirm_id,
