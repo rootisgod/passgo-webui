@@ -11,17 +11,24 @@ import (
 	"strings"
 )
 
-// copyToTemp copies a file to /tmp so snap-confined multipass can read it.
-func copyToTemp(src string) (string, error) {
+// copyForSnap copies a file to a location the multipass snap can read.
+// Snap confinement gives multipass its own private /tmp, so we use
+// /var/snap/multipass/common/ which is accessible to the snap.
+// Falls back to os.TempDir() if the snap path doesn't exist.
+func copyForSnap(src string) (string, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
 	}
-	tmp := filepath.Join(os.TempDir(), "passgo-cloud-init-"+filepath.Base(src))
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	dir := "/var/snap/multipass/common"
+	if _, err := os.Stat(dir); err != nil {
+		dir = os.TempDir() // non-snap installs
+	}
+	dst := filepath.Join(dir, "passgo-cloud-init-"+filepath.Base(src))
+	if err := os.WriteFile(dst, data, 0644); err != nil {
 		return "", err
 	}
-	return tmp, nil
+	return dst, nil
 }
 
 // ListVMs returns full details for all VMs using JSON output.
@@ -185,7 +192,7 @@ func (c *Client) LaunchVM(name, release string, cpus, memoryMB, diskGB int, clou
 	if cloudInitFile != "" {
 		// Multipass (snap) can't read files outside its confinement (e.g. /root/).
 		// Copy to a temp file that multipass can access.
-		tmpFile, err := copyToTemp(cloudInitFile)
+		tmpFile, err := copyForSnap(cloudInitFile)
 		if err != nil {
 			return "", fmt.Errorf("prepare cloud-init file: %w", err)
 		}
