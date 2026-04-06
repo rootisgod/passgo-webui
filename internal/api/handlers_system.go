@@ -1,9 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 
+	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -70,6 +72,35 @@ func (s *Server) handleHostResources(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("host resources", "error", err)
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleGetVMDefaults(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.VMDefaults)
+}
+
+func (s *Server) handleUpdateVMDefaults(w http.ResponseWriter, r *http.Request) {
+	var req config.VMDefaults
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.CPUs < 1 {
+		req.CPUs = 1
+	}
+	if req.MemoryMB < 512 {
+		req.MemoryMB = 512
+	}
+	if req.DiskGB < 1 {
+		req.DiskGB = 1
+	}
+	s.cfg.VMDefaults = &req
+	configPath := config.DefaultConfigPath()
+	if err := s.cfg.Save(configPath); err != nil {
+		s.logger.Error("failed to save config", "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to save configuration")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.VMDefaults)
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

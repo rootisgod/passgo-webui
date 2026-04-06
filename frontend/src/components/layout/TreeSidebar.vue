@@ -8,7 +8,7 @@ import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
 import GroupNameModal from '../modals/GroupNameModal.vue'
 import MoveToGroupModal from '../modals/MoveToGroupModal.vue'
-import { Monitor, ChevronDown, ChevronRight, FileCode, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Folder, FolderOpen, FolderPlus, Pencil, ArrowRight, Plus } from 'lucide-vue-next'
+import { Monitor, ChevronDown, ChevronRight, FileCode, Settings, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Folder, FolderOpen, FolderPlus, Pencil, ArrowRight, Plus } from 'lucide-vue-next'
 import { ref, computed, markRaw } from 'vue'
 
 const store = useVmStore()
@@ -295,6 +295,16 @@ async function executeConfirmed() {
       >
         <FileCode class="w-4 h-4" />
         <span class="text-sm">Cloud-Init</span>
+      </div>
+
+      <!-- Settings -->
+      <div
+        class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors"
+        :class="store.selectedNode === '__settings__' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
+        @click="store.selectNode('__settings__')"
+      >
+        <Settings class="w-4 h-4" />
+        <span class="text-sm">Settings</span>
       </div>
 
       <hr class="my-1.5 border-[var(--border)]" />

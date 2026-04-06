@@ -11,6 +11,7 @@ import StatusBar from './components/layout/StatusBar.vue'
 import HostPanel from './components/host/HostPanel.vue'
 import VmDetailPanel from './components/vm/VmDetailPanel.vue'
 import CloudInitPanel from './components/cloudinit/CloudInitPanel.vue'
+import SettingsPanel from './components/settings/SettingsPanel.vue'
 import Toast from './components/shared/Toast.vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 
@@ -55,6 +56,7 @@ usePolling(() => {
         <TreeSidebar />
         <main class="flex-1 overflow-auto">
           <CloudInitPanel v-if="store.selectedNode === '__cloud-init__'" />
+          <SettingsPanel v-else-if="store.selectedNode === '__settings__'" />
           <Transition v-else name="fade" mode="out-in">
             <HostPanel v-if="store.selectedNode === null" key="host" />
             <VmDetailPanel v-else :key="store.selectedNode" />

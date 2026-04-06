@@ -16,6 +16,12 @@ type LLMConfig struct {
 	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
+type VMDefaults struct {
+	CPUs     int `json:"cpus"`
+	MemoryMB int `json:"memory_mb"`
+	DiskGB   int `json:"disk_gb"`
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -25,6 +31,7 @@ type Config struct {
 	Groups        []string          `json:"groups,omitempty"`
 	VMGroups      map[string]string `json:"vm_groups,omitempty"`
 	LLM           *LLMConfig        `json:"llm,omitempty"`
+	VMDefaults    *VMDefaults       `json:"vm_defaults,omitempty"`
 }
 
 func DefaultConfigPath() string {
@@ -69,6 +76,19 @@ func Load(path string) (*Config, error) {
 			BaseURL: "https://openrouter.ai/api/v1",
 			Model:   "anthropic/claude-sonnet-4",
 		}
+	}
+	if cfg.VMDefaults == nil {
+		cfg.VMDefaults = &VMDefaults{CPUs: 2, MemoryMB: 1024, DiskGB: 8}
+	}
+	// Enforce minimums
+	if cfg.VMDefaults.CPUs < 1 {
+		cfg.VMDefaults.CPUs = 2
+	}
+	if cfg.VMDefaults.MemoryMB < 512 {
+		cfg.VMDefaults.MemoryMB = 1024
+	}
+	if cfg.VMDefaults.DiskGB < 1 {
+		cfg.VMDefaults.DiskGB = 8
 	}
 	return &cfg, nil
 }

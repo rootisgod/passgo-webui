@@ -43,13 +43,19 @@ onMounted(async () => {
   for (let i = 0; i < 4; i++) rand += chars[Math.floor(Math.random() * chars.length)]
   placeholder.value = 'VM-' + rand
 
-  // Load images, networks, and templates in parallel
+  // Load images, networks, templates, and VM defaults in parallel
   try {
-    const [imgs, nets, tmpls] = await Promise.all([
+    const [imgs, nets, tmpls, defaults] = await Promise.all([
       api.listImages().catch(() => []),
       api.listNetworks().catch(() => []),
       api.listCloudInitTemplates().catch(() => []),
+      api.getVMDefaults().catch(() => null),
     ])
+    if (defaults) {
+      cpus.value = defaults.cpus
+      memoryMB.value = defaults.memory_mb
+      diskGB.value = defaults.disk_gb
+    }
     images.value = Array.isArray(imgs) ? imgs : []
     networks.value = Array.isArray(nets) ? nets : []
     templates.value = Array.isArray(tmpls) ? tmpls : []

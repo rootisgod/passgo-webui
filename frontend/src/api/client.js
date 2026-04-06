@@ -49,6 +49,8 @@ export const getCloudInitStatus = (name) => request('GET', `/vms/${name}/cloud-i
 export const getVMConfig = (name) => request('GET', `/vms/${name}/config`)
 export const resizeVM = (name, config) => request('PUT', `/vms/${name}/config`, config)
 export const getHostResources = () => request('GET', '/host/resources')
+export const getVMDefaults = () => request('GET', '/config/vm-defaults')
+export const updateVMDefaults = (defaults) => request('PUT', '/config/vm-defaults', defaults)
 
 // Snapshots
 export const listSnapshots = (vmName) => request('GET', `/vms/${vmName}/snapshots`)
