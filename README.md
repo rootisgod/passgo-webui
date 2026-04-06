@@ -92,7 +92,7 @@ All endpoints are under `/api/v1/`:
 
 ## Running as a Service (Ubuntu/systemd)
 
-On Ubuntu, you can run PassGo Web as a systemd service so it starts automatically on boot.
+On Ubuntu, you can run PassGo Web as a systemd service so it starts automatically on boot. The service runs as root because Multipass requires root-level access to its daemon socket.
 
 ### 1. Install the binary
 
@@ -101,22 +101,7 @@ sudo cp passgo-web-linux-amd64 /usr/local/bin/passgo-web
 sudo chmod +x /usr/local/bin/passgo-web
 ```
 
-### 2. Create a service user
-
-The service user needs to be in the `sudo` group so it can run `multipass` commands.
-
-```bash
-sudo useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/passgo-web --create-home passgo-web
-sudo usermod -aG sudo passgo-web
-```
-
-Grant the service user passwordless sudo for the `multipass` command:
-
-```bash
-echo 'passgo-web ALL=(ALL) NOPASSWD: /snap/bin/multipass' | sudo tee /etc/sudoers.d/passgo-web
-```
-
-### 3. Create the systemd unit
+### 2. Create the systemd unit
 
 ```bash
 sudo tee /etc/systemd/system/passgo-web.service > /dev/null <<'EOF'
@@ -127,21 +112,16 @@ Wants=snap.multipass.multipassd.service
 
 [Service]
 Type=simple
-User=passgo-web
-Group=passgo-web
 ExecStart=/usr/local/bin/passgo-web
-WorkingDirectory=/var/lib/passgo-web
 Restart=on-failure
 RestartSec=5
-
-# Config will be created at /var/lib/passgo-web/.passgo-web/config.json on first run
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-### 4. Enable and start
+### 3. Enable and start
 
 ```bash
 sudo systemctl daemon-reload
@@ -149,14 +129,14 @@ sudo systemctl enable passgo-web
 sudo systemctl start passgo-web
 ```
 
-### 5. Check status
+### 4. Check status and logs
 
 ```bash
-sudo systemctl status passgo-web
-sudo journalctl -u passgo-web -f
+systemctl status passgo-web
+journalctl -u passgo-web -f
 ```
 
-The UI will be available at `http://<your-server>:8080`. Default login is `admin` / `admin`.
+The UI will be available at `http://<your-server>:8080`. Default login is `admin` / `admin`. Config is created at `/root/.passgo-web/config.json` on first run.
 
 ### Uninstall
 
@@ -164,19 +144,20 @@ The UI will be available at `http://<your-server>:8080`. Default login is `admin
 sudo systemctl stop passgo-web
 sudo systemctl disable passgo-web
 sudo rm /etc/systemd/system/passgo-web.service
-sudo rm /etc/sudoers.d/passgo-web
-sudo userdel -r passgo-web
 sudo rm /usr/local/bin/passgo-web
 sudo systemctl daemon-reload
 ```
 
 ### Using Task
 
-If you have [Task](https://taskfile.dev/) installed and have built from source, you can install or remove the service with:
+If you have [Task](https://taskfile.dev/) installed and have built from source:
 
 ```bash
-sudo task service-install    # install binary, create user, enable and start
+sudo task service-install    # build, install binary, enable and start
 sudo task service-remove     # stop, disable, remove everything
+sudo task service-restart    # restart after deploying a new build
+task service-status          # show service status
+task service-logs            # follow live logs
 ```
 
 ## Tech Stack

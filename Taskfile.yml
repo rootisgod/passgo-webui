@@ -123,10 +123,6 @@ tasks:
     cmds:
       - cp passgo-web /usr/local/bin/passgo-web
       - chmod +x /usr/local/bin/passgo-web
-      - id -u passgo-web &>/dev/null || useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/passgo-web --create-home passgo-web
-      - usermod -aG sudo passgo-web
-      - |
-        echo 'passgo-web ALL=(ALL) NOPASSWD: /snap/bin/multipass' > /etc/sudoers.d/passgo-web
       - |
         printf '%s\n' \
           '[Unit]' \
@@ -136,10 +132,7 @@ tasks:
           '' \
           '[Service]' \
           'Type=simple' \
-          'User=passgo-web' \
-          'Group=passgo-web' \
           'ExecStart=/usr/local/bin/passgo-web' \
-          'WorkingDirectory=/var/lib/passgo-web' \
           'Restart=on-failure' \
           'RestartSec=5' \
           '' \
@@ -174,14 +167,17 @@ tasks:
     cmds:
       - systemctl status passgo-web
 
+  service-logs:
+    desc: Follow passgo-web service logs
+    cmds:
+      - journalctl -u passgo-web -f
+
   service-remove:
     desc: Remove passgo-web systemd service (run with sudo)
     cmds:
       - systemctl stop passgo-web || true
       - systemctl disable passgo-web || true
       - rm -f /etc/systemd/system/passgo-web.service
-      - rm -f /etc/sudoers.d/passgo-web
-      - userdel -r passgo-web || true
       - rm -f /usr/local/bin/passgo-web
       - systemctl daemon-reload
       - echo "passgo-web service removed"
