@@ -119,10 +119,15 @@ tasks:
 
   service-install:
     desc: Install passgo-web as a systemd service (run with sudo)
-    deps: [build]
     cmds:
-      - cp passgo-web /usr/local/bin/passgo-web
-      - chmod +x /usr/local/bin/passgo-web
+      - |
+        if [ ! -f /usr/local/bin/passgo-web ]; then
+          echo "Error: /usr/local/bin/passgo-web not found."
+          echo "Copy the binary there first, e.g.:"
+          echo "  sudo cp passgo-web-linux-amd64 /usr/local/bin/passgo-web"
+          echo "  sudo chmod +x /usr/local/bin/passgo-web"
+          exit 1
+        fi
       - |
         printf '%s\n' \
           '[Unit]' \
