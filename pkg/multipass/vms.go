@@ -4,10 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+// copyToTemp copies a file to /tmp so snap-confined multipass can read it.
+func copyToTemp(src string) (string, error) {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return "", err
+	}
+	tmp := filepath.Join(os.TempDir(), "passgo-cloud-init-"+filepath.Base(src))
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return "", err
+	}
+	return tmp, nil
+}
 
 // ListVMs returns full details for all VMs using JSON output.
 func (c *Client) ListVMs() ([]VMInfo, error) {
@@ -168,7 +183,14 @@ func (c *Client) LaunchVM(name, release string, cpus, memoryMB, diskGB int, clou
 	}
 
 	if cloudInitFile != "" {
-		args = append(args, "--cloud-init", cloudInitFile)
+		// Multipass (snap) can't read files outside its confinement (e.g. /root/).
+		// Copy to a temp file that multipass can access.
+		tmpFile, err := copyToTemp(cloudInitFile)
+		if err != nil {
+			return "", fmt.Errorf("prepare cloud-init file: %w", err)
+		}
+		defer os.Remove(tmpFile)
+		args = append(args, "--cloud-init", tmpFile)
 	}
 
 	if networkName == "bridged" {
