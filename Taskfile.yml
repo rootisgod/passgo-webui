@@ -115,6 +115,54 @@ tasks:
     desc: Run all tests (Go + frontend)
     deps: [test, test-frontend]
 
+  # --- Service (Ubuntu/systemd) ---
+
+  service-install:
+    desc: Install passgo-web as a systemd service (run with sudo)
+    deps: [build]
+    cmds:
+      - cp passgo-web /usr/local/bin/passgo-web
+      - chmod +x /usr/local/bin/passgo-web
+      - id -u passgo-web &>/dev/null || useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/passgo-web --create-home passgo-web
+      - usermod -aG sudo passgo-web
+      - |
+        echo 'passgo-web ALL=(ALL) NOPASSWD: /snap/bin/multipass' > /etc/sudoers.d/passgo-web
+      - |
+        printf '%s\n' \
+          '[Unit]' \
+          'Description=PassGo Web - Multipass Management UI' \
+          'After=network.target snap.multipass.multipassd.service' \
+          'Wants=snap.multipass.multipassd.service' \
+          '' \
+          '[Service]' \
+          'Type=simple' \
+          'User=passgo-web' \
+          'Group=passgo-web' \
+          'ExecStart=/usr/local/bin/passgo-web' \
+          'WorkingDirectory=/var/lib/passgo-web' \
+          'Restart=on-failure' \
+          'RestartSec=5' \
+          '' \
+          '[Install]' \
+          'WantedBy=multi-user.target' \
+          > /etc/systemd/system/passgo-web.service
+      - systemctl daemon-reload
+      - systemctl enable passgo-web
+      - systemctl start passgo-web
+      - echo "passgo-web service installed and started"
+
+  service-remove:
+    desc: Remove passgo-web systemd service (run with sudo)
+    cmds:
+      - systemctl stop passgo-web || true
+      - systemctl disable passgo-web || true
+      - rm -f /etc/systemd/system/passgo-web.service
+      - rm -f /etc/sudoers.d/passgo-web
+      - userdel -r passgo-web || true
+      - rm -f /usr/local/bin/passgo-web
+      - systemctl daemon-reload
+      - echo "passgo-web service removed"
+
   # --- Clean ---
 
   clean:

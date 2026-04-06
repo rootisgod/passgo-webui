@@ -90,6 +90,95 @@ All endpoints are under `/api/v1/`:
 | `/cloud-init/templates` | GET/POST | List/create templates |
 | `/networks` | GET | List available networks |
 
+## Running as a Service (Ubuntu/systemd)
+
+On Ubuntu, you can run PassGo Web as a systemd service so it starts automatically on boot.
+
+### 1. Install the binary
+
+```bash
+sudo cp passgo-web-linux-amd64 /usr/local/bin/passgo-web
+sudo chmod +x /usr/local/bin/passgo-web
+```
+
+### 2. Create a service user
+
+The service user needs to be in the `sudo` group so it can run `multipass` commands.
+
+```bash
+sudo useradd --system --shell /usr/sbin/nologin --home-dir /var/lib/passgo-web --create-home passgo-web
+sudo usermod -aG sudo passgo-web
+```
+
+Grant the service user passwordless sudo for the `multipass` command:
+
+```bash
+echo 'passgo-web ALL=(ALL) NOPASSWD: /snap/bin/multipass' | sudo tee /etc/sudoers.d/passgo-web
+```
+
+### 3. Create the systemd unit
+
+```bash
+sudo tee /etc/systemd/system/passgo-web.service > /dev/null <<'EOF'
+[Unit]
+Description=PassGo Web - Multipass Management UI
+After=network.target snap.multipass.multipassd.service
+Wants=snap.multipass.multipassd.service
+
+[Service]
+Type=simple
+User=passgo-web
+Group=passgo-web
+ExecStart=/usr/local/bin/passgo-web
+WorkingDirectory=/var/lib/passgo-web
+Restart=on-failure
+RestartSec=5
+
+# Config will be created at /var/lib/passgo-web/.passgo-web/config.json on first run
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+### 4. Enable and start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable passgo-web
+sudo systemctl start passgo-web
+```
+
+### 5. Check status
+
+```bash
+sudo systemctl status passgo-web
+sudo journalctl -u passgo-web -f
+```
+
+The UI will be available at `http://<your-server>:8080`. Default login is `admin` / `admin`.
+
+### Uninstall
+
+```bash
+sudo systemctl stop passgo-web
+sudo systemctl disable passgo-web
+sudo rm /etc/systemd/system/passgo-web.service
+sudo rm /etc/sudoers.d/passgo-web
+sudo userdel -r passgo-web
+sudo rm /usr/local/bin/passgo-web
+sudo systemctl daemon-reload
+```
+
+### Using Task
+
+If you have [Task](https://taskfile.dev/) installed and have built from source, you can install or remove the service with:
+
+```bash
+sudo task service-install    # install binary, create user, enable and start
+sudo task service-remove     # stop, disable, remove everything
+```
+
 ## Tech Stack
 
 - **Backend:** Go with embedded frontend (`go:embed`), single binary
