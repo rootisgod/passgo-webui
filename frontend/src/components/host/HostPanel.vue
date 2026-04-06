@@ -1,12 +1,14 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
+import { getHistory } from '../../composables/useMetricsHistory.js'
 import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
+import Sparkline from '../shared/Sparkline.vue'
 import CreateVmModal from '../modals/CreateVmModal.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import { Plus, Play, Square, Trash2, Server, Activity, Pause, AlertTriangle, X, Loader2 } from 'lucide-vue-next'
+import { Plus, Play, Square, Trash2, Server, Activity, Pause, AlertTriangle, X, Loader2, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -20,6 +22,38 @@ const cards = [
   { label: 'Suspended', getter: () => store.suspendedCount, icon: Pause, color: 'text-[var(--warning)]' },
   { label: 'Deleted', getter: () => store.deletedCount, icon: AlertTriangle, color: 'text-[var(--danger)]' },
 ]
+
+// Host resource metrics
+const hr = computed(() => store.hostResources)
+const metrics = computed(() => getHistory('__host__'))
+
+const memoryPercent = computed(() => {
+  if (!hr.value?.total_memory_mb) return 0
+  return Math.round((hr.value.used_memory_mb / hr.value.total_memory_mb) * 100)
+})
+
+const diskPercent = computed(() => {
+  if (!hr.value?.total_disk_mb) return 0
+  return Math.round((hr.value.used_disk_mb / hr.value.total_disk_mb) * 100)
+})
+
+function barColor(percent) {
+  if (percent > 90) return 'bg-[var(--danger)]'
+  if (percent > 70) return 'bg-[var(--warning)]'
+  return 'bg-[var(--success)]'
+}
+
+function loadColor(load, cpus) {
+  const ratio = load / (cpus || 1)
+  if (ratio > 1) return 'text-[var(--danger)]'
+  if (ratio > 0.7) return 'text-[var(--warning)]'
+  return 'text-[var(--success)]'
+}
+
+function formatSize(mb) {
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GiB'
+  return mb + ' MiB'
+}
 
 async function doStartAll() {
   try {
@@ -59,6 +93,54 @@ async function executeConfirmed() {
 <template>
   <div class="p-6">
     <h2 class="text-xl font-semibold mb-6">Dashboard</h2>
+
+    <!-- Host Resource Cards -->
+    <div v-if="hr" class="grid grid-cols-3 gap-4 mb-6">
+      <!-- CPU Load -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <Cpu class="w-4 h-4" />
+          CPU Load
+        </div>
+        <div class="text-2xl font-bold mb-1" :class="loadColor(hr.load_avg_1, hr.total_cpus)">
+          {{ hr.load_avg_1?.toFixed(2) || '0.00' }}
+        </div>
+        <div class="text-xs text-[var(--text-secondary)] mb-2">
+          {{ hr.load_avg_5?.toFixed(2) || '0.00' }} <span class="text-[var(--muted)]">5m</span>
+          {{ hr.load_avg_15?.toFixed(2) || '0.00' }} <span class="text-[var(--muted)]">15m</span>
+          <span class="ml-2 text-[var(--muted)]">/ {{ hr.total_cpus }} CPUs</span>
+        </div>
+        <Sparkline :data="metrics.cpu" :max="hr.total_cpus || 1" color="var(--accent)" :height="28" />
+      </div>
+
+      <!-- Memory -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <MemoryStick class="w-4 h-4" />
+          Memory
+        </div>
+        <div class="text-2xl font-bold mb-1">{{ memoryPercent }}%</div>
+        <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
+          <div class="h-full rounded-full transition-all" :class="barColor(memoryPercent)" :style="{ width: memoryPercent + '%' }" />
+        </div>
+        <div class="text-xs text-[var(--text-secondary)] mb-2">{{ formatSize(hr.used_memory_mb) }} / {{ formatSize(hr.total_memory_mb) }}</div>
+        <Sparkline :data="metrics.memory" :max="100" color="var(--success)" :height="28" />
+      </div>
+
+      <!-- Disk -->
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-2 text-xs text-[var(--text-secondary)] mb-2">
+          <HardDrive class="w-4 h-4" />
+          Disk
+        </div>
+        <div class="text-2xl font-bold mb-1">{{ diskPercent }}%</div>
+        <div class="w-full h-1.5 rounded-full bg-[var(--bg-primary)] mb-2">
+          <div class="h-full rounded-full transition-all" :class="barColor(diskPercent)" :style="{ width: diskPercent + '%' }" />
+        </div>
+        <div class="text-xs text-[var(--text-secondary)] mb-2">{{ formatSize(hr.used_disk_mb) }} / {{ formatSize(hr.total_disk_mb) }}</div>
+        <Sparkline :data="metrics.disk" :max="100" color="var(--warning)" :height="28" />
+      </div>
+    </div>
 
     <!-- Summary cards -->
     <div class="grid grid-cols-5 gap-4 mb-8">

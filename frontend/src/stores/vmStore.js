@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, listGroups, dismissLaunch, ApiError } from '../api/client.js'
+import { listVMs, listLaunches, listGroups, dismissLaunch, getHostResources, ApiError } from '../api/client.js'
 import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
@@ -13,6 +13,7 @@ export const useVmStore = defineStore('vms', {
     loading: false,
     error: null,
     hostname: 'localhost',
+    hostResources: null,  // { total_cpus, load_avg_1, ..., total_memory_mb, used_memory_mb, total_disk_mb, used_disk_mb }
     // Groups
     groups: [],           // ordered list of group names
     vmGroups: {},         // {vmName: groupName}
@@ -85,6 +86,17 @@ export const useVmStore = defineStore('vms', {
 
         // Refresh groups alongside VMs
         await this.fetchGroups()
+
+        // Refresh host resources and record history
+        try {
+          const hr = await getHostResources()
+          this.hostResources = hr
+          const memPct = hr.total_memory_mb ? (hr.used_memory_mb / hr.total_memory_mb) * 100 : 0
+          const diskPct = hr.total_disk_mb ? (hr.used_disk_mb / hr.total_disk_mb) * 100 : 0
+          recordMetrics('__host__', { cpu: hr.load_avg_1 || 0, memory: memPct, disk: diskPct })
+        } catch {
+          // Non-critical
+        }
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           this.authenticated = false
