@@ -66,8 +66,8 @@ type versionResponse struct {
 func (s *Server) handleHostResources(w http.ResponseWriter, r *http.Request) {
 	res, err := multipass.GetHostResources()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		// Log partial failures but still return whatever data we collected
+		s.logger.Warn("host resources", "error", err)
 	}
 	writeJSON(w, http.StatusOK, res)
 }

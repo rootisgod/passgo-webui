@@ -56,9 +56,10 @@ export const useVmStore = defineStore('vms', {
       try {
         this.loading = true
         this.error = null
-        const [data, launchData] = await Promise.all([
+        const [data, launchData, hostData] = await Promise.all([
           listVMs(),
           listLaunches().catch(() => []),
+          getHostResources().catch(() => null),
         ])
         const launches = Array.isArray(launchData) ? launchData : []
         const launchingNames = new Set(launches.filter(l => l.status === 'launching').map(l => l.name))
@@ -87,15 +88,12 @@ export const useVmStore = defineStore('vms', {
         // Refresh groups alongside VMs
         await this.fetchGroups()
 
-        // Refresh host resources and record history
-        try {
-          const hr = await getHostResources()
-          this.hostResources = hr
-          const memPct = hr.total_memory_mb ? (hr.used_memory_mb / hr.total_memory_mb) * 100 : 0
-          const diskPct = hr.total_disk_mb ? (hr.used_disk_mb / hr.total_disk_mb) * 100 : 0
-          recordMetrics('__host__', { cpu: hr.load_avg_1 || 0, memory: memPct, disk: diskPct })
-        } catch {
-          // Non-critical
+        // Record host resource metrics
+        if (hostData) {
+          this.hostResources = hostData
+          const memPct = hostData.total_memory_mb ? (hostData.used_memory_mb / hostData.total_memory_mb) * 100 : 0
+          const diskPct = hostData.total_disk_mb ? (hostData.used_disk_mb / hostData.total_disk_mb) * 100 : 0
+          recordMetrics('__host__', { cpu: hostData.load_avg_1 || 0, memory: memPct, disk: diskPct })
         }
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {

@@ -17,33 +17,44 @@ func GetHostResources() (HostResources, error) {
 		TotalCPUs: runtime.NumCPU(),
 	}
 
+	var errs []string
+
 	// Total memory
 	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
 	if err != nil {
-		return res, fmt.Errorf("sysctl hw.memsize: %w", err)
+		errs = append(errs, fmt.Sprintf("sysctl hw.memsize: %v", err))
+	} else if memBytes, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err != nil {
+		errs = append(errs, fmt.Sprintf("parse hw.memsize: %v", err))
+	} else {
+		res.TotalMemoryMB = memBytes / (1024 * 1024)
 	}
-	memBytes, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-	if err != nil {
-		return res, fmt.Errorf("parse hw.memsize: %w", err)
-	}
-	res.TotalMemoryMB = memBytes / (1024 * 1024)
 
 	// Load averages
 	if load1, load5, load15, err := parseLoadAvgDarwin(); err == nil {
 		res.LoadAvg1 = load1
 		res.LoadAvg5 = load5
 		res.LoadAvg15 = load15
+	} else {
+		errs = append(errs, fmt.Sprintf("loadavg: %v", err))
 	}
 
 	// Memory usage via vm_stat
 	if used, err := parseMemUsageDarwin(); err == nil {
 		res.UsedMemoryMB = used
+	} else {
+		errs = append(errs, fmt.Sprintf("vm_stat: %v", err))
 	}
 
 	// Disk usage via df
 	if total, used, err := parseDiskUsage(); err == nil {
 		res.TotalDiskMB = total
 		res.UsedDiskMB = used
+	} else {
+		errs = append(errs, fmt.Sprintf("disk: %v", err))
+	}
+
+	if len(errs) > 0 {
+		return res, fmt.Errorf("partial host resource errors: %s", strings.Join(errs, "; "))
 	}
 
 	return res, nil

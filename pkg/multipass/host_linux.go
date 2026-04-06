@@ -19,23 +19,36 @@ func GetHostResources() (HostResources, error) {
 		TotalCPUs: runtime.NumCPU(),
 	}
 
+	var errs []string
+
 	// Load averages from /proc/loadavg
 	if load1, load5, load15, err := parseLoadAvgLinux(); err == nil {
 		res.LoadAvg1 = load1
 		res.LoadAvg5 = load5
 		res.LoadAvg15 = load15
+	} else {
+		errs = append(errs, fmt.Sprintf("loadavg: %v", err))
 	}
 
 	// Memory from /proc/meminfo
 	if total, used, err := parseMemInfoLinux(); err == nil {
 		res.TotalMemoryMB = total
 		res.UsedMemoryMB = used
+	} else {
+		errs = append(errs, fmt.Sprintf("meminfo: %v", err))
 	}
 
 	// Disk usage via df
 	if total, used, err := parseDiskUsageLinux(); err == nil {
 		res.TotalDiskMB = total
 		res.UsedDiskMB = used
+	} else {
+		errs = append(errs, fmt.Sprintf("disk: %v", err))
+	}
+
+	if len(errs) > 0 {
+		// Return partial results with error context for logging
+		return res, fmt.Errorf("partial host resource errors: %s", strings.Join(errs, "; "))
 	}
 
 	return res, nil
