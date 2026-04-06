@@ -151,6 +151,29 @@ tasks:
       - systemctl start passgo-web
       - echo "passgo-web service installed and started"
 
+  service-start:
+    desc: Start the passgo-web service (run with sudo)
+    cmds:
+      - systemctl start passgo-web
+      - echo "passgo-web service started"
+
+  service-stop:
+    desc: Stop the passgo-web service (run with sudo)
+    cmds:
+      - systemctl stop passgo-web
+      - echo "passgo-web service stopped"
+
+  service-restart:
+    desc: Restart the passgo-web service (run with sudo)
+    cmds:
+      - systemctl restart passgo-web
+      - echo "passgo-web service restarted"
+
+  service-status:
+    desc: Show passgo-web service status
+    cmds:
+      - systemctl status passgo-web
+
   service-remove:
     desc: Remove passgo-web systemd service (run with sudo)
     cmds:
