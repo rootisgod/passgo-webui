@@ -112,6 +112,7 @@ Wants=snap.multipass.multipassd.service
 
 [Service]
 Type=simple
+Environment=HOME=/root
 ExecStart=/usr/local/bin/passgo-web
 Restart=on-failure
 RestartSec=5

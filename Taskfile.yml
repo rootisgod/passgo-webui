@@ -137,6 +137,7 @@ tasks:
           '' \
           '[Service]' \
           'Type=simple' \
+          'Environment=HOME=/root' \
           'ExecStart=/usr/local/bin/passgo-web' \
           'Restart=on-failure' \
           'RestartSec=5' \
