@@ -17,6 +17,7 @@ const sshPrivateKey = ref('')
 const playbooksDir = ref('')
 const ansibleInstalled = ref(false)
 const ansibleVersion = ref('')
+const detectedSSHKey = ref('')
 
 onMounted(async () => {
   try {
@@ -32,6 +33,7 @@ onMounted(async () => {
     playbooksDir.value = status.playbooks_dir || ''
     ansibleInstalled.value = status.installed
     ansibleVersion.value = status.version || ''
+    detectedSSHKey.value = status.ssh_key_path || ''
   } catch (e) {
     toasts.error('Failed to load settings')
   } finally {
@@ -125,6 +127,11 @@ async function save() {
         <div v-if="playbooksDir" class="mt-2 text-sm">
           <span class="text-[var(--text-secondary)]">Playbooks directory:</span>
           <code class="ml-2 px-2 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs font-mono">{{ playbooksDir }}</code>
+        </div>
+        <div v-if="detectedSSHKey" class="mt-2 text-sm">
+          <span class="text-[var(--text-secondary)]">SSH key:</span>
+          <code class="ml-2 px-2 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs font-mono">{{ detectedSSHKey }}</code>
+          <span class="ml-2 text-xs text-[var(--muted)]">({{ sshPrivateKey ? 'custom' : 'multipass default' }})</span>
         </div>
       </div>
 

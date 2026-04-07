@@ -23,6 +23,7 @@ type ansibleStatusResponse struct {
 	Version      string `json:"version,omitempty"`
 	Error        string `json:"error,omitempty"`
 	PlaybooksDir string `json:"playbooks_dir"`
+	SSHKeyPath   string `json:"ssh_key_path,omitempty"`
 }
 
 type ansibleOutputEvent struct {
@@ -59,10 +60,20 @@ func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Resolve effective SSH key path
+	sshKeyPath := ""
+	if s.cfg.VMDefaults != nil {
+		sshKeyPath = s.cfg.VMDefaults.SSHPrivateKey
+	}
+	if sshKeyPath == "" {
+		sshKeyPath = multipass.FindMultipassSSHKey()
+	}
+
 	writeJSON(w, http.StatusOK, ansibleStatusResponse{
 		Installed:    true,
 		Version:      version,
 		PlaybooksDir: s.cfg.PlaybooksDir,
+		SSHKeyPath:   sshKeyPath,
 	})
 }
 
@@ -137,6 +148,9 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 	sshKey := ""
 	if s.cfg.VMDefaults != nil {
 		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	}
+	if sshKey == "" {
+		sshKey = multipass.FindMultipassSSHKey()
 	}
 	inventory, err := s.generateInventoryYAML(targetVMs, user, sshKey)
 	if err != nil {

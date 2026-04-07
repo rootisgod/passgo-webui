@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
 type inventoryHost struct {
@@ -103,6 +105,9 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 	sshKey := r.URL.Query().Get("ssh_key")
 	if sshKey == "" && s.cfg.VMDefaults != nil {
 		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	}
+	if sshKey == "" {
+		sshKey = multipass.FindMultipassSSHKey()
 	}
 
 	var filterVMs []string
