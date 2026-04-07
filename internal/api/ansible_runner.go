@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -104,6 +105,10 @@ func (ar *ansibleRunner) start(playbook string, vms []string, cmd *exec.Cmd, inv
 	ar.mu.Lock()
 	ar.current = run
 	ar.mu.Unlock()
+
+	// Show the command being run so users can reproduce manually
+	run.addLine("$ ANSIBLE_HOST_KEY_CHECKING=False " + strings.Join(cmd.Args, " "))
+	run.addLine("")
 
 	// Start the process in its own process group so we can kill all children
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
