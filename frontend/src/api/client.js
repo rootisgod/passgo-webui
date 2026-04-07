@@ -52,6 +52,25 @@ export const getHostResources = () => request('GET', '/host/resources')
 export const getVMDefaults = () => request('GET', '/config/vm-defaults')
 export const updateVMDefaults = (defaults) => request('PUT', '/config/vm-defaults', defaults)
 
+// Config export/import
+export async function exportConfig() {
+  const res = await fetch(API_BASE + '/config/export')
+  if (!res.ok) {
+    const text = await res.text()
+    let msg
+    try { msg = JSON.parse(text).error } catch { msg = text }
+    throw new ApiError(res.status, msg)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `passgo-config-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+export const importConfig = (bundle) => request('POST', '/config/import', bundle)
+
 // Snapshots
 export const listSnapshots = (vmName) => request('GET', `/vms/${vmName}/snapshots`)
 export const createSnapshot = (vmName, name, comment) => request('POST', `/vms/${vmName}/snapshots`, { name, comment })

@@ -102,6 +102,8 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/host/resources", s.handleHostResources)
 	mux.HandleFunc("GET /api/v1/config/vm-defaults", s.handleGetVMDefaults)
 	mux.HandleFunc("PUT /api/v1/config/vm-defaults", s.handleUpdateVMDefaults)
+	mux.HandleFunc("GET /api/v1/config/export", s.handleExportConfig)
+	mux.HandleFunc("POST /api/v1/config/import", s.handleImportConfig)
 	mux.HandleFunc("GET /api/v1/networks", s.handleListNetworks)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates", s.handleListCloudInitTemplates)
 	mux.HandleFunc("GET /api/v1/cloud-init/templates/{name}", s.handleGetCloudInitTemplate)

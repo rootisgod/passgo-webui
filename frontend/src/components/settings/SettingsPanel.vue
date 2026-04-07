@@ -3,11 +3,13 @@ import { ref, onMounted } from 'vue'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
-import { Save } from 'lucide-vue-next'
+import { Save, Download, Upload } from 'lucide-vue-next'
 
 const toasts = useToastStore()
 const loading = ref(true)
 const saving = ref(false)
+const importing = ref(false)
+const fileInput = ref(null)
 
 const cpus = ref(2)
 const memoryMB = ref(1024)
@@ -40,6 +42,53 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function handleExport() {
+  try {
+    await api.exportConfig()
+    toasts.success('Configuration exported')
+  } catch (e) {
+    toasts.error(e.message)
+  }
+}
+
+async function handleImportFile(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  importing.value = true
+  try {
+    const text = await file.text()
+    let bundle
+    try {
+      bundle = JSON.parse(text)
+    } catch {
+      toasts.error('Invalid JSON file')
+      return
+    }
+    if (bundle.version !== 1) {
+      toasts.error('Unsupported config version')
+      return
+    }
+    const result = await api.importConfig(bundle)
+    toasts.success(`${result.message} (${result.templates_written} templates, ${result.playbooks_written} playbooks)`)
+    // Reload settings to reflect imported values
+    const [defaults, status] = await Promise.all([
+      api.getVMDefaults(),
+      api.getAnsibleStatus(),
+    ])
+    cpus.value = defaults.cpus
+    memoryMB.value = defaults.memory_mb
+    diskGB.value = defaults.disk_gb
+    sshPublicKey.value = defaults.ssh_public_key || ''
+    sshPrivateKey.value = defaults.ssh_private_key || ''
+    playbooksDir.value = status.playbooks_dir || ''
+  } catch (e) {
+    toasts.error(e.message)
+  } finally {
+    importing.value = false
+    fileInput.value.value = ''
+  }
+}
 
 async function save() {
   saving.value = true
@@ -158,6 +207,18 @@ async function save() {
       </div>
 
       <ActionButton label="Save" :icon="Save" variant="success" :disabled="saving" @click="save" />
+
+      <hr class="my-6 border-[var(--border)]" />
+
+      <h3 class="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-4">Export / Import</h3>
+      <p class="text-xs text-[var(--muted)] mb-4">
+        Export all settings, cloud-init templates, and playbooks as a single JSON file. Import to restore or migrate to another host.
+      </p>
+      <div class="flex gap-3">
+        <ActionButton label="Export" :icon="Download" @click="handleExport" />
+        <ActionButton label="Import" :icon="Upload" :disabled="importing" @click="() => fileInput.click()" />
+      </div>
+      <input ref="fileInput" type="file" accept=".json" class="hidden" @change="handleImportFile" />
     </div>
   </div>
 </template>

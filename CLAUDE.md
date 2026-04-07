@@ -191,6 +191,8 @@ Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, 
                    POST /ansible/run (SSE-streamed playbook execution)
                    GET /ansible/run/queue, DELETE /ansible/run/queue (auto-run queue)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
+Config Bundle:    GET /config/export (JSON download of settings + templates + playbooks)
+                   POST /config/import (restore from exported bundle, preserves password + API key)
 ```
 
 ### Frontend Component Tree
