@@ -158,5 +158,17 @@ export const useVmStore = defineStore('vms', {
     toggleGroupExpanded(name) {
       this.expandedGroups[name] = !this.expandedGroups[name]
     },
+
+    expandAllGroups() {
+      for (const g of this.groups) {
+        this.expandedGroups[g] = true
+      }
+    },
+
+    collapseAllGroups() {
+      for (const g of this.groups) {
+        this.expandedGroups[g] = false
+      }
+    },
   },
 })

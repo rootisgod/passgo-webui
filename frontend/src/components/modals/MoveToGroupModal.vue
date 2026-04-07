@@ -2,10 +2,15 @@
 import { useVmStore } from '../../stores/vmStore.js'
 import { Folder, X as XIcon } from 'lucide-vue-next'
 
-defineProps({
-  vmName: { type: String, required: true },
+const props = defineProps({
+  vmName: { type: String, default: '' },
+  vmNames: { type: Array, default: () => [] },
   currentGroup: { type: String, default: '' },
 })
+
+const label = props.vmNames.length > 1
+  ? `${props.vmNames.length} VMs`
+  : props.vmName || props.vmNames[0] || ''
 
 const emit = defineEmits(['confirm', 'cancel'])
 const store = useVmStore()
@@ -16,7 +21,7 @@ const store = useVmStore()
     <div class="fixed inset-0 z-40 flex items-center justify-center">
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="emit('cancel')" />
       <div class="relative bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-6 max-w-sm w-full mx-4 shadow-2xl">
-        <h3 class="text-sm font-medium mb-1">Move "{{ vmName }}" to Group</h3>
+        <h3 class="text-sm font-medium mb-1">Move {{ label }} to Group</h3>
         <p class="text-xs text-[var(--text-secondary)] mb-4">Select a group or remove from current group.</p>
         <div class="flex flex-col gap-1 max-h-60 overflow-y-auto">
           <!-- Ungrouped option -->

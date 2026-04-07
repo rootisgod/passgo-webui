@@ -24,16 +24,22 @@ const cloneVmName = ref(null)
 // Group modals
 const groupModal = ref(null) // { mode, initialName, onConfirm }
 const moveToGroupVm = ref(null) // vm name
+const bulkMoveToGroup = ref(false)
 
 // Bulk selection
 const hasSelectedStopped = computed(() => store.selectedVmObjects.some(vm => vm.state === 'Stopped' || vm.state === 'Suspended'))
 const hasSelectedRunning = computed(() => store.selectedVmObjects.some(vm => vm.state === 'Running' || vm.state === 'Suspended'))
 const hasSelectedNonDeleted = computed(() => store.selectedVmObjects.some(vm => vm.state !== 'Deleted'))
 const allSelected = computed(() => store.vms.length > 0 && store.selectedVms.length === store.vms.length)
+const allGroupsExpanded = computed(() => store.groups.length > 0 && store.groups.every(g => store.expandedGroups[g]))
 
 function toggleSelectionMode() {
   selectionMode.value = !selectionMode.value
-  if (!selectionMode.value) store.clearSelection()
+  if (selectionMode.value) {
+    store.expandAllGroups()
+  } else {
+    store.clearSelection()
+  }
 }
 
 function toggleSelectAll() {
@@ -262,6 +268,20 @@ function openHostContextMenu(event) {
 }
 
 async function handleMoveToGroup(groupName) {
+  if (bulkMoveToGroup.value) {
+    bulkMoveToGroup.value = false
+    const names = [...store.selectedVms]
+    const results = await Promise.allSettled(names.map(vm => api.assignVmGroup(vm, groupName)))
+    const failed = results.filter(r => r.status === 'rejected')
+    if (failed.length) {
+      toasts.error(`${failed.length} of ${names.length} failed to move`)
+    } else {
+      toasts.success(groupName ? `Moved ${names.length} VM${names.length !== 1 ? 's' : ''} to "${groupName}"` : `Ungrouped ${names.length} VM${names.length !== 1 ? 's' : ''}`)
+    }
+    store.clearSelection()
+    store.fetchGroups()
+    return
+  }
   const vmName = moveToGroupVm.value
   moveToGroupVm.value = null
   try {
@@ -366,13 +386,21 @@ async function executeConfirmed() {
         </button>
       </div>
 
-      <!-- Select all toggle -->
-      <div v-if="selectionMode && expanded" class="ml-4 px-2 py-1">
+      <!-- Select all toggle + expand/collapse all -->
+      <div v-if="expanded && (selectionMode || store.groups.length > 0)" class="ml-4 px-2 py-1 flex items-center gap-3">
         <button
+          v-if="selectionMode"
           class="text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
           @click="toggleSelectAll"
         >
           {{ allSelected ? 'Deselect All' : 'Select All' }}
+        </button>
+        <button
+          v-if="store.groups.length > 0"
+          class="text-xs text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+          @click="allGroupsExpanded ? store.collapseAllGroups() : store.expandAllGroups()"
+        >
+          {{ allGroupsExpanded ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
 
@@ -498,11 +526,12 @@ async function executeConfirmed() {
     />
 
     <MoveToGroupModal
-      v-if="moveToGroupVm"
-      :vm-name="moveToGroupVm"
-      :current-group="store.vmGroups[moveToGroupVm] || ''"
+      v-if="moveToGroupVm || bulkMoveToGroup"
+      :vm-name="moveToGroupVm || ''"
+      :vm-names="bulkMoveToGroup ? store.selectedVms : []"
+      :current-group="moveToGroupVm ? (store.vmGroups[moveToGroupVm] || '') : ''"
       @confirm="handleMoveToGroup"
-      @cancel="moveToGroupVm = null"
+      @cancel="moveToGroupVm = null; bulkMoveToGroup = false"
     />
 
     <!-- Bulk action bar -->
@@ -527,6 +556,13 @@ async function executeConfirmed() {
           @click="bulkStop"
         >
           <Square class="w-3 h-3" /> Stop
+        </button>
+        <button
+          v-if="hasSelectedNonDeleted && store.groups.length > 0"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-[var(--bg-hover)] hover:bg-[var(--border)] transition-colors"
+          @click="bulkMoveToGroup = true"
+        >
+          <ArrowRight class="w-3 h-3" /> Move to Group
         </button>
         <button
           v-if="hasSelectedNonDeleted"
