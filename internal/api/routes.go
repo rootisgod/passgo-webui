@@ -24,6 +24,7 @@ type Server struct {
 	ptySessions        *ptyStore
 	groupMu            sync.Mutex
 	ansibleRunner      ansibleRunner
+	scheduler          *scheduler
 	loginLimiter       *loginRateLimiter
 }
 
@@ -43,11 +44,14 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 	}
 	// Wire up ansible queue: when a queued run needs to start, use the server's startPlaybookRun
 	s.ansibleRunner.startFunc = s.startPlaybookRun
+	s.scheduler = newScheduler(s)
+	s.scheduler.start()
 	return s
 }
 
 // Shutdown cleans up server resources including persistent PTY sessions.
 func (s *Server) Shutdown() {
+	s.scheduler.stop()
 	s.ptySessions.shutdown()
 }
 
@@ -124,6 +128,14 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/profiles", s.handleCreateProfile)
 	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.handleUpdateProfile)
 	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.handleDeleteProfile)
+
+	// Schedules
+	mux.HandleFunc("GET /api/v1/schedules", s.handleListSchedules)
+	mux.HandleFunc("POST /api/v1/schedules", s.handleCreateSchedule)
+	mux.HandleFunc("PUT /api/v1/schedules/{id}", s.handleUpdateSchedule)
+	mux.HandleFunc("DELETE /api/v1/schedules/{id}", s.handleDeleteSchedule)
+	mux.HandleFunc("POST /api/v1/schedules/{id}/run", s.handleRunScheduleNow)
+	mux.HandleFunc("GET /api/v1/schedules/history", s.handleScheduleHistory)
 
 	// Ansible
 	mux.HandleFunc("GET /api/v1/ansible/inventory", s.handleAnsibleInventory)

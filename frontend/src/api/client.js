@@ -154,6 +154,14 @@ export const deleteProfile = (id) => request('DELETE', `/profiles/${encodeURICom
 export const getAnsibleRunQueue = () => request('GET', '/ansible/run/queue')
 export const clearAnsibleRunQueue = () => request('DELETE', '/ansible/run/queue')
 
+// Schedules
+export const listSchedules = () => request('GET', '/schedules')
+export const createSchedule = (schedule) => request('POST', '/schedules', schedule)
+export const updateSchedule = (id, schedule) => request('PUT', `/schedules/${encodeURIComponent(id)}`, schedule)
+export const deleteSchedule = (id) => request('DELETE', `/schedules/${encodeURIComponent(id)}`)
+export const runScheduleNow = (id) => request('POST', `/schedules/${encodeURIComponent(id)}/run`)
+export const getScheduleHistory = () => request('GET', '/schedules/history')
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

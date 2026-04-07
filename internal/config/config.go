@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -62,6 +64,63 @@ func (p *Profile) Validate() error {
 	return nil
 }
 
+type Schedule struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Enabled  bool     `json:"enabled"`
+	Action   string   `json:"action"`
+	Time     string   `json:"time"`
+	Days     []int    `json:"days"`
+	VMs      []string `json:"vms,omitempty"`
+	Group    string   `json:"group,omitempty"`
+	Playbook string   `json:"playbook,omitempty"`
+}
+
+func (s *Schedule) Validate() error {
+	if s.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if !profileIDRegex.MatchString(s.ID) {
+		return fmt.Errorf("id must contain only letters, numbers, hyphens, and underscores")
+	}
+	if s.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	switch s.Action {
+	case "start", "stop", "playbook":
+	default:
+		return fmt.Errorf("action must be start, stop, or playbook")
+	}
+	// Validate time format HH:MM
+	parts := strings.Split(s.Time, ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("time must be in HH:MM format")
+	}
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil || hour < 0 || hour > 23 {
+		return fmt.Errorf("hour must be 0-23")
+	}
+	min, err := strconv.Atoi(parts[1])
+	if err != nil || min < 0 || min > 59 {
+		return fmt.Errorf("minute must be 0-59")
+	}
+	if len(s.Days) == 0 {
+		return fmt.Errorf("at least one day is required")
+	}
+	for _, d := range s.Days {
+		if d < 0 || d > 6 {
+			return fmt.Errorf("day must be 0 (Sun) through 6 (Sat)")
+		}
+	}
+	if len(s.VMs) == 0 && s.Group == "" {
+		return fmt.Errorf("either vms or group must be specified")
+	}
+	if s.Action == "playbook" && s.Playbook == "" {
+		return fmt.Errorf("playbook is required for playbook action")
+	}
+	return nil
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -74,6 +133,7 @@ type Config struct {
 	VMDefaults    *VMDefaults       `json:"vm_defaults,omitempty"`
 	PlaybooksDir  string            `json:"playbooks_dir,omitempty"`
 	Profiles      []Profile         `json:"profiles,omitempty"`
+	Schedules     []Schedule        `json:"schedules,omitempty"`
 }
 
 func (c *Config) GetProfiles() []Profile {
@@ -121,6 +181,54 @@ func (c *Config) DeleteProfile(id string) error {
 		return fmt.Errorf("profile %q not found", id)
 	}
 	c.Profiles = append(c.Profiles[:idx], c.Profiles[idx+1:]...)
+	return nil
+}
+
+func (c *Config) GetSchedules() []Schedule {
+	if c.Schedules == nil {
+		return []Schedule{}
+	}
+	return c.Schedules
+}
+
+func (c *Config) GetSchedule(id string) (*Schedule, int) {
+	for i := range c.Schedules {
+		if c.Schedules[i].ID == id {
+			return &c.Schedules[i], i
+		}
+	}
+	return nil, -1
+}
+
+func (c *Config) AddSchedule(s Schedule) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if existing, _ := c.GetSchedule(s.ID); existing != nil {
+		return fmt.Errorf("schedule with id %q already exists", s.ID)
+	}
+	c.Schedules = append(c.Schedules, s)
+	return nil
+}
+
+func (c *Config) UpdateSchedule(s Schedule) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	_, idx := c.GetSchedule(s.ID)
+	if idx == -1 {
+		return fmt.Errorf("schedule %q not found", s.ID)
+	}
+	c.Schedules[idx] = s
+	return nil
+}
+
+func (c *Config) DeleteSchedule(id string) error {
+	_, idx := c.GetSchedule(id)
+	if idx == -1 {
+		return fmt.Errorf("schedule %q not found", id)
+	}
+	c.Schedules = append(c.Schedules[:idx], c.Schedules[idx+1:]...)
 	return nil
 }
 

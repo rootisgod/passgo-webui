@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
@@ -59,10 +60,12 @@ func (s *Server) handleFindImages(w http.ResponseWriter, r *http.Request) {
 }
 
 type versionResponse struct {
-	Version   string `json:"version"`
-	BuildTime string `json:"build_time"`
-	GitCommit string `json:"git_commit"`
-	Hostname  string `json:"hostname"`
+	Version    string `json:"version"`
+	BuildTime  string `json:"build_time"`
+	GitCommit  string `json:"git_commit"`
+	Hostname   string `json:"hostname"`
+	ServerTime string `json:"server_time"`
+	Timezone   string `json:"timezone"`
 }
 
 func (s *Server) handleHostResources(w http.ResponseWriter, r *http.Request) {
@@ -105,10 +108,14 @@ func (s *Server) handleUpdateVMDefaults(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	hostname, _ := os.Hostname()
+	now := time.Now()
+	zone, _ := now.Zone()
 	writeJSON(w, http.StatusOK, versionResponse{
-		Version:   s.version,
-		BuildTime: s.buildTime,
-		GitCommit: s.gitCommit,
-		Hostname:  hostname,
+		Version:    s.version,
+		BuildTime:  s.buildTime,
+		GitCommit:  s.gitCommit,
+		Hostname:   hostname,
+		ServerTime: now.Format(time.RFC3339),
+		Timezone:   zone,
 	})
 }

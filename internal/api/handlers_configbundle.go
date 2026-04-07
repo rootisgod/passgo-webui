@@ -26,6 +26,7 @@ type configExport struct {
 	VMDefaults *config.VMDefaults  `json:"vm_defaults,omitempty"`
 	LLM        *llmConfigExport    `json:"llm,omitempty"`
 	Profiles   []config.Profile    `json:"profiles,omitempty"`
+	Schedules  []config.Schedule   `json:"schedules,omitempty"`
 }
 
 type llmConfigExport struct {
@@ -41,6 +42,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 		VMGroups:   s.cfg.VMGroups,
 		VMDefaults: s.cfg.VMDefaults,
 		Profiles:   s.cfg.GetProfiles(),
+		Schedules:  s.cfg.GetSchedules(),
 	}
 	if s.cfg.LLM != nil {
 		export.LLM = &llmConfigExport{
@@ -135,6 +137,9 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if bundle.Config.Profiles != nil {
 			s.cfg.Profiles = bundle.Config.Profiles
+		}
+		if bundle.Config.Schedules != nil {
+			s.cfg.Schedules = bundle.Config.Schedules
 		}
 		if bundle.Config.LLM != nil {
 			if s.cfg.LLM == nil {

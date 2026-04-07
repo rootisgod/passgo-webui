@@ -139,6 +139,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Profile-aware launch: `POST /vms` accepts optional `profile` and `playbook` fields. Resolution order: vm_defaults → profile → request overrides. Post-launch: auto-assigns group + enqueues ansible playbook.
 - Ansible run queue in `ansible_runner.go`: FIFO queue for auto-run playbooks. `enqueue()` adds to queue or starts immediately if idle. `dequeueNext()` called after each run finishes. `startFunc` callback wired to `Server.startPlaybookRun()` for building inventory + command.
 - Config export/import in `handlers_configbundle.go`: bundles config.json fields + cloud-init templates + playbooks into a single JSON file. Export strips password and LLM API key. Import merges into existing config preserving sensitive/host-specific fields. **When adding new persistent config fields, user-managed file directories, or new sections to config.json, update `handleExportConfig` and `handleImportConfig` to include them in the bundle.**
+- Scheduled operations in `scheduler.go`: background goroutine ticks every 30s, checks enabled schedules against current time/weekday, fires start/stop VM or enqueues playbook runs. Schedules stored as `[]Schedule` in config.json. CRUD handlers in `handlers_schedule.go`. `lastFire` map prevents double-fire within same minute.
 
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
@@ -186,6 +187,8 @@ Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (l
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
 Profiles:         GET/POST /profiles, PUT/DELETE /profiles/{id} (launch profile CRUD)
+Schedules:        GET/POST /schedules, PUT/DELETE /schedules/{id} (scheduled operations CRUD)
+                   GET /schedules/history (in-memory ring buffer, last 50 runs)
 Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, ?user=, ?ssh_key= override)
                    GET /ansible/status (check ansible-playbook installed + version)
                    GET/POST/PUT/DELETE /ansible/playbooks/{name} (CRUD)
@@ -201,7 +204,7 @@ Config Bundle:    GET /config/export (JSON download of settings + templates + pl
 App.vue
 ├── LoginPage.vue
 ├── AppHeader.vue
-├── TreeSidebar.vue (host node, Cloud-Init, Ansible, Profiles, Settings nodes, group folders, VM list, context menus, multi-select + bulk actions)
+├── TreeSidebar.vue (host node, Cloud-Init, Ansible, Profiles, Schedules, Settings nodes, group folders, VM list, context menus, multi-select + bulk actions)
 │   ├── ContextMenu.vue (reusable right-click menu)
 │   ├── CloneVmModal.vue
 │   ├── ConfirmModal.vue
@@ -211,6 +214,7 @@ App.vue
 │   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation)
 ├── AnsiblePanel.vue (top-level playbook CRUD + run with VM target dropdown, mirrors VmAnsibleTab layout)
 ├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
+├── SchedulesPanel.vue (scheduled operations — start/stop VMs, run playbooks on time + day schedule)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue (profile dropdown, playbook auto-run selector, save-as-profile)
 ├── VmDetailPanel.vue (tabbed)
