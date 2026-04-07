@@ -8,7 +8,7 @@ import ActionButton from '../shared/ActionButton.vue'
 import Sparkline from '../shared/Sparkline.vue'
 import CreateVmModal from '../modals/CreateVmModal.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import { Plus, Play, Square, Trash2, Server, Activity, Pause, AlertTriangle, X, Loader2, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
+import { Plus, Play, Square, Trash2, Server, Activity, Pause, AlertTriangle, X, Loader2, Cpu, MemoryStick, HardDrive, Download } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -77,6 +77,10 @@ async function doPurge() {
     toasts.success('Deleted VMs purged')
     store.fetchVMs()
   } catch (e) { toasts.error(e.message) }
+}
+
+function downloadInventory() {
+  window.open('/api/v1/ansible/inventory', '_blank')
 }
 
 function confirmBulk(action, message) {
@@ -194,6 +198,7 @@ async function executeConfirmed() {
       <ActionButton label="Start All" :icon="Play" @click="confirmBulk(doStartAll, 'Start all stopped VMs?')" />
       <ActionButton label="Stop All" :icon="Square" @click="confirmBulk(doStopAll, 'Stop all running VMs?')" />
       <ActionButton label="Purge Deleted" :icon="Trash2" variant="danger" @click="confirmBulk(doPurge, 'Permanently remove all deleted VMs?')" />
+      <ActionButton label="Ansible Inventory" :icon="Download" @click="downloadInventory" />
     </div>
 
     <CreateVmModal v-if="showCreateModal" @close="showCreateModal = false" />

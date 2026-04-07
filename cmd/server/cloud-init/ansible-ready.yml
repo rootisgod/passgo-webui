@@ -1,0 +1,12 @@
+#cloud-config
+
+# Prepare this VM for Ansible management.
+# Python 3 is Ansible's only remote-side requirement.
+
+package_update: true
+
+packages:
+  - python3
+
+runcmd:
+  - systemctl enable ssh

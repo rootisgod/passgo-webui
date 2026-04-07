@@ -181,6 +181,7 @@ Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (l
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
+Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, ?user=, ?ssh_key= override)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 ```
 

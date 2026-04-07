@@ -17,9 +17,11 @@ type LLMConfig struct {
 }
 
 type VMDefaults struct {
-	CPUs     int `json:"cpus"`
-	MemoryMB int `json:"memory_mb"`
-	DiskGB   int `json:"disk_gb"`
+	CPUs           int    `json:"cpus"`
+	MemoryMB       int    `json:"memory_mb"`
+	DiskGB         int    `json:"disk_gb"`
+	SSHPublicKey   string `json:"ssh_public_key,omitempty"`
+	SSHPrivateKey  string `json:"ssh_private_key,omitempty"`
 }
 
 type Config struct {

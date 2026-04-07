@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
@@ -10,7 +10,7 @@ import Sparkline from '../shared/Sparkline.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloudInitStatus from './CloudInitStatus.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
-import { Play, Square, Pause, Copy, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive } from 'lucide-vue-next'
+import { Play, Square, Pause, Copy, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive, Download, Key } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -78,6 +78,35 @@ async function action(fn, msg) {
     toasts.success(msg)
     store.fetchVMs()
   } catch (e) { toasts.error(e.message) }
+}
+
+const sshPublicKey = ref('')
+const sshPrivateKey = ref('')
+const copyingKey = ref(false)
+
+onMounted(async () => {
+  try {
+    const defaults = await api.getVMDefaults()
+    sshPublicKey.value = defaults.ssh_public_key || ''
+    sshPrivateKey.value = defaults.ssh_private_key || ''
+  } catch { /* ignore */ }
+})
+
+function downloadVmInventory() {
+  window.open(`/api/v1/ansible/inventory?vm=${encodeURIComponent(vm.value.name)}`, '_blank')
+}
+
+async function copySSHKey() {
+  if (!sshPublicKey.value || copyingKey.value) return
+  copyingKey.value = true
+  try {
+    await api.execInVM(vm.value.name, ['bash', '-c', `mkdir -p ~/.ssh && echo ${JSON.stringify(sshPublicKey.value)} >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys`])
+    toasts.success(`SSH key copied to ${vm.value.name}`)
+  } catch (e) {
+    toasts.error(e.message)
+  } finally {
+    copyingKey.value = false
+  }
 }
 
 function confirmDanger(fn, message) {
@@ -226,6 +255,48 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
 
     <!-- Cloud-Init Status -->
     <CloudInitStatus v-if="isRunning" :vm-name="vm.name" :key="'ci-' + vm.name" class="mt-6" />
+
+    <!-- Ansible -->
+    <div v-if="isRunning && vm.ipv4?.length" class="mt-6">
+      <h3 class="text-lg font-semibold mb-3">Ansible</h3>
+      <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4">
+        <div class="flex items-center gap-3 mb-4">
+          <ActionButton
+            v-if="sshPublicKey"
+            label="Copy SSH Key to Instance"
+            :icon="Key"
+            :disabled="copyingKey"
+            @click="copySSHKey"
+          />
+          <ActionButton label="Download Inventory" :icon="Download" @click="downloadVmInventory" />
+        </div>
+        <p v-if="!sshPublicKey" class="text-xs text-[var(--warning)] mb-3">No SSH public key configured. Add one in Settings to enable one-click key copying.</p>
+        <div class="text-sm text-[var(--text-secondary)] space-y-3">
+          <p class="font-medium text-[var(--text-primary)]">Quick start</p>
+          <ol class="list-decimal list-inside space-y-2 ml-1">
+            <li>
+              <template v-if="sshPublicKey">Copy your SSH key to the VM using the button above.</template>
+              <template v-else>
+                Add your SSH public key in Settings, then copy it to the VM.
+              </template>
+            </li>
+            <li>
+              Download the inventory file using the button above.
+            </li>
+            <li>
+              Test the connection:
+              <code class="block mt-1 px-3 py-1.5 rounded bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs font-mono">ansible -i inventory.yml all -m ping{{ sshPrivateKey ? '' : ' --private-key ~/.ssh/id_ed25519' }}</code>
+            </li>
+            <li>
+              Run a playbook:
+              <code class="block mt-1 px-3 py-1.5 rounded bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs font-mono">ansible-playbook -i inventory.yml playbook.yml{{ sshPrivateKey ? '' : ' --private-key ~/.ssh/id_ed25519' }}</code>
+            </li>
+          </ol>
+          <p class="text-xs text-[var(--muted)] mt-2">Tip: Launch VMs with the built-in "ansible-ready" cloud-init template to pre-install Python 3.</p>
+          <p class="text-xs text-[var(--muted)]">Note: On Windows, Ansible must be run from WSL (Windows Subsystem for Linux).</p>
+        </div>
+      </div>
+    </div>
 
     <ConfirmModal
       v-if="confirmAction"
