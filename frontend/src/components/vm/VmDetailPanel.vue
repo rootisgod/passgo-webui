@@ -7,6 +7,7 @@ import VmSnapshotsTab from './VmSnapshotsTab.vue'
 import VmMountsTab from './VmMountsTab.vue'
 import VmTransferTab from './VmTransferTab.vue'
 import VmConfigTab from './VmConfigTab.vue'
+import VmAnsibleTab from './VmAnsibleTab.vue'
 
 const store = useVmStore()
 const activeTab = ref('summary')
@@ -18,6 +19,7 @@ const tabs = [
   { id: 'mounts', label: 'Mounts' },
   { id: 'files', label: 'Files' },
   { id: 'config', label: 'Config' },
+  { id: 'ansible', label: 'Ansible' },
 ]
 
 // Reset tab when VM changes
@@ -49,7 +51,9 @@ watch(() => store.selectedNode, () => {
 
     <!-- Tab content -->
     <div class="flex-1 overflow-auto">
-      <Transition name="fade" mode="out-in">
+      <!-- Ansible tab rendered outside Transition (CodeMirror conflict) -->
+      <VmAnsibleTab v-if="activeTab === 'ansible'" :vm-name="store.selectedNode" :key="'ansible-' + store.selectedNode" />
+      <Transition v-else name="fade" mode="out-in">
         <VmSummaryTab v-if="activeTab === 'summary'" :key="'summary-' + store.selectedNode" />
         <VmConsoleTab v-else-if="activeTab === 'console'" :key="'console-' + store.selectedNode" />
         <VmSnapshotsTab v-else-if="activeTab === 'snapshots'" :key="'snap-' + store.selectedNode" />

@@ -182,6 +182,9 @@ Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (l
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
 Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, ?user=, ?ssh_key= override)
+                   GET /ansible/status (check ansible-playbook installed + version)
+                   GET/POST/PUT/DELETE /ansible/playbooks/{name} (CRUD)
+                   POST /ansible/run (SSE-streamed playbook execution)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 ```
 
@@ -207,7 +210,9 @@ App.vue
 │   ├── VmSnapshotsTab.vue (clone from snapshot support)
 │   ├── VmMountsTab.vue
 │   ├── VmTransferTab.vue (file browser, power-on guard)
-│   └── VmConfigTab.vue
+│   ├── VmConfigTab.vue
+│   └── VmAnsibleTab.vue (playbook CRUD + target picker + SSE output via xterm.js)
+│       └── PlaybookEditor.vue (CodeMirror 6 YAML editor, no cloud-init validation)
 ├── ChatPanel.vue (right-side blade, SSE streaming, confirmation banner)
 │   ├── ChatMessage.vue (user/assistant bubbles, markdown rendering, tool status)
 │   └── ChatSettingsModal.vue (provider presets, API key + Connect, model dropdown, read-only toggle)

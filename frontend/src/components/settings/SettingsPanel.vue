@@ -14,17 +14,26 @@ const memoryMB = ref(1024)
 const diskGB = ref(8)
 const sshPublicKey = ref('')
 const sshPrivateKey = ref('')
+const playbooksDir = ref('')
+const ansibleInstalled = ref(false)
+const ansibleVersion = ref('')
 
 onMounted(async () => {
   try {
-    const defaults = await api.getVMDefaults()
+    const [defaults, status] = await Promise.all([
+      api.getVMDefaults(),
+      api.getAnsibleStatus(),
+    ])
     cpus.value = defaults.cpus
     memoryMB.value = defaults.memory_mb
     diskGB.value = defaults.disk_gb
     sshPublicKey.value = defaults.ssh_public_key || ''
     sshPrivateKey.value = defaults.ssh_private_key || ''
+    playbooksDir.value = status.playbooks_dir || ''
+    ansibleInstalled.value = status.installed
+    ansibleVersion.value = status.version || ''
   } catch (e) {
-    toasts.error('Failed to load VM defaults')
+    toasts.error('Failed to load settings')
   } finally {
     loading.value = false
   }
@@ -100,7 +109,25 @@ async function save() {
         </div>
       </div>
 
+      <hr class="my-6 border-[var(--border)]" />
+
       <h3 class="text-sm font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-4">Ansible</h3>
+
+      <div class="max-w-2xl mb-4 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-3">
+        <div class="flex items-center gap-4 text-sm">
+          <div class="flex items-center gap-2">
+            <span class="text-[var(--text-secondary)]">Status:</span>
+            <span v-if="ansibleInstalled" class="text-[var(--success)]">Installed</span>
+            <span v-else class="text-[var(--danger)]">Not found</span>
+          </div>
+          <span v-if="ansibleVersion" class="text-xs text-[var(--muted)]">{{ ansibleVersion }}</span>
+        </div>
+        <div v-if="playbooksDir" class="mt-2 text-sm">
+          <span class="text-[var(--text-secondary)]">Playbooks directory:</span>
+          <code class="ml-2 px-2 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-primary)] text-xs font-mono">{{ playbooksDir }}</code>
+        </div>
+      </div>
+
       <p class="text-xs text-[var(--muted)] mb-3">SSH keys for Ansible access. The public key is copied to VMs; the private key path is included in generated inventory files.</p>
       <div class="max-w-2xl mb-6 space-y-4">
         <div>

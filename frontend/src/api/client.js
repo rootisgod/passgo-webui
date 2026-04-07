@@ -114,6 +114,14 @@ export const deleteGroup = (name) => request('DELETE', `/groups/${encodeURICompo
 export const assignVmGroup = (vm, group) => request('PUT', '/groups/assign', { vm, group })
 export const reorderGroups = (groups) => request('PUT', '/groups/reorder', { groups })
 
+// Ansible playbooks
+export const getAnsibleStatus = () => request('GET', '/ansible/status')
+export const listPlaybooks = () => request('GET', '/ansible/playbooks')
+export const getPlaybook = (name) => request('GET', `/ansible/playbooks/${encodeURIComponent(name)}`)
+export const createPlaybook = (name, content) => request('POST', '/ansible/playbooks', { name, content })
+export const updatePlaybook = (name, content) => request('PUT', `/ansible/playbooks/${encodeURIComponent(name)}`, { content })
+export const deletePlaybook = (name) => request('DELETE', `/ansible/playbooks/${encodeURIComponent(name)}`)
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

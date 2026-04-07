@@ -23,6 +23,7 @@ type Server struct {
 	sessions           *sessionStore
 	ptySessions        *ptyStore
 	groupMu            sync.Mutex
+	ansibleRunMu       sync.Mutex
 	loginLimiter       *loginRateLimiter
 }
 
@@ -115,6 +116,13 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 
 	// Ansible
 	mux.HandleFunc("GET /api/v1/ansible/inventory", s.handleAnsibleInventory)
+	mux.HandleFunc("GET /api/v1/ansible/status", s.handleAnsibleStatus)
+	mux.HandleFunc("GET /api/v1/ansible/playbooks", s.handleListPlaybooks)
+	mux.HandleFunc("GET /api/v1/ansible/playbooks/{name}", s.handleGetPlaybook)
+	mux.HandleFunc("POST /api/v1/ansible/playbooks", s.handleCreatePlaybook)
+	mux.HandleFunc("PUT /api/v1/ansible/playbooks/{name}", s.handleUpdatePlaybook)
+	mux.HandleFunc("DELETE /api/v1/ansible/playbooks/{name}", s.handleDeletePlaybook)
+	mux.HandleFunc("POST /api/v1/ansible/run", s.handleRunPlaybook)
 
 	// Chat / LLM
 	mux.HandleFunc("POST /api/v1/chat", s.handleChat)

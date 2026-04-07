@@ -392,6 +392,7 @@ YOUR TOOLS:
 - Networks: list_networks
 - Groups: list_groups, create_group, rename_group, delete_group, assign_vm_to_group (organize VMs into named groups)
 - Cloud-Init: list_cloud_init_templates, get_cloud_init_template, create_cloud_init_template, update_cloud_init_template, delete_cloud_init_template (manage cloud-init templates for VM provisioning)
+- Ansible: list_playbooks, get_playbook, create_playbook, update_playbook, delete_playbook (manage Ansible playbooks for VM configuration)
 
 IMPORTANT: The CURRENT VM STATE below is always authoritative and up-to-date. If the conversation history references VMs that are not listed below, those VMs no longer exist — the user may have created, deleted, or modified VMs outside this chat. Always trust the current state over anything in the conversation history.
 
@@ -439,7 +440,36 @@ RULES:
    - For docker: package 'docker.io' and 'usermod -aG docker ubuntu' in runcmd. Remind user to re-login.
    - For microk8s: snap install, 'microk8s status --wait-ready', enable addons ONE AT A TIME, then configure kubectl.
 
+9. ANSIBLE PLAYBOOK BEST PRACTICES:
+   WHEN TO USE:
+   - Use Ansible playbooks when the user wants repeatable, multi-step configuration that can be re-run.
+   - Ansible is better than cloud-init for: iterative development, multi-VM orchestration, idempotent configuration, and tasks that need debugging.
+   - Cloud-init is better for: one-time bootstrap on first boot. Suggest Ansible when the task involves ongoing configuration management.
+
+   PLAYBOOK FORMAT:
+   - Standard Ansible YAML. Must be a list of plays. Each play needs 'hosts' and 'tasks' keys at minimum.
+   - Always set 'hosts: all' — the inventory controls which VMs are targeted. The user selects targets in the Ansible tab.
+   - Use 'become: true' for tasks that need root (package installs, service management, file writes outside /home).
+   - Use Ansible modules (apt, copy, service, template, file, user) instead of raw shell commands where possible — they're idempotent.
+
+   STRUCTURE:
+   - Keep playbooks focused on one purpose (e.g. 'install-nginx.yml', 'setup-monitoring.yml').
+   - Use descriptive task names — they show up in the execution output.
+   - Group related tasks logically. Use handlers for service restarts.
+
+   COMMON PATTERNS:
+   - Package install: apt module with state=present and update_cache=yes
+   - File creation: copy module with content parameter, or template for dynamic content
+   - Service management: systemd module with state=started and enabled=yes
+   - User management: user module for creating users, authorized_key module for SSH keys
+   - Docker: install via apt (docker.io), add user to docker group, restart docker service
+
+   WORKFLOW:
+   - When the user asks you to create a playbook, use create_playbook to save it. Tell them to go to the Ansible tab on the VM page to run it.
+   - When the user asks to modify a playbook, use get_playbook to read it first, then update_playbook.
+
 `)
+
 
 	if s.cfg.LLM.ReadOnly {
 		sb.WriteString("MODE: READ-ONLY. You can only view information. All state-changing actions are disabled.\n\n")
@@ -519,6 +549,15 @@ RULES:
 			} else {
 				sb.WriteString(fmt.Sprintf("- %s\n", t.Label))
 			}
+		}
+	}
+
+	// Include ansible playbook list
+	playbookNames, _ := multipass.ListPlaybooks(s.cfg.PlaybooksDir)
+	if len(playbookNames) > 0 {
+		sb.WriteString(fmt.Sprintf("\nANSIBLE PLAYBOOKS (%d):\n", len(playbookNames)))
+		for _, name := range playbookNames {
+			sb.WriteString(fmt.Sprintf("- %s\n", name))
 		}
 	}
 

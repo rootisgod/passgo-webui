@@ -7,20 +7,17 @@ import (
 	"strings"
 )
 
-func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) {
-	user := r.URL.Query().Get("user")
-	if user == "" {
-		user = "ubuntu"
-	}
-	sshKey := r.URL.Query().Get("ssh_key")
-	if sshKey == "" && s.cfg.VMDefaults != nil {
-		sshKey = s.cfg.VMDefaults.SSHPrivateKey
-	}
+type inventoryHost struct {
+	name string
+	ip   string
+}
 
+// generateInventoryYAML builds an Ansible inventory YAML string from running VMs.
+// filterVMs limits to specific VM names (nil/empty = all running VMs).
+func (s *Server) generateInventoryYAML(filterVMs []string, user, sshKeyPath string) (string, error) {
 	vms, err := s.mp.ListVMs()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list VMs")
-		return
+		return "", fmt.Errorf("failed to list VMs: %w", err)
 	}
 
 	s.groupMu.Lock()
@@ -32,23 +29,21 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 	}
 	s.groupMu.Unlock()
 
-	// Optional: filter to a single VM
-	filterVM := r.URL.Query().Get("vm")
-
-	// Collect running VMs with IPs
-	type hostEntry struct {
-		name string
-		ip   string
+	// Build filter set
+	filterSet := make(map[string]bool, len(filterVMs))
+	for _, name := range filterVMs {
+		filterSet[name] = true
 	}
-	var hosts []hostEntry
+
+	var hosts []inventoryHost
 	for _, vm := range vms {
 		if vm.State != "Running" || len(vm.IPv4) == 0 {
 			continue
 		}
-		if filterVM != "" && vm.Name != filterVM {
+		if len(filterSet) > 0 && !filterSet[vm.Name] {
 			continue
 		}
-		hosts = append(hosts, hostEntry{name: vm.Name, ip: vm.IPv4[0]})
+		hosts = append(hosts, inventoryHost{name: vm.Name, ip: vm.IPv4[0]})
 	}
 	sort.Slice(hosts, func(i, j int) bool { return hosts[i].name < hosts[j].name })
 
@@ -58,8 +53,8 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 	// vars
 	b.WriteString("  vars:\n")
 	fmt.Fprintf(&b, "    ansible_user: %s\n", user)
-	if sshKey != "" {
-		fmt.Fprintf(&b, "    ansible_ssh_private_key_file: %s\n", sshKey)
+	if sshKeyPath != "" {
+		fmt.Fprintf(&b, "    ansible_ssh_private_key_file: %s\n", sshKeyPath)
 	}
 
 	// hosts
@@ -73,14 +68,13 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// children (groups)
-	groupHosts := make(map[string][]hostEntry)
+	groupHosts := make(map[string][]inventoryHost)
 	for _, h := range hosts {
 		if g, ok := vmGroups[h.name]; ok {
 			groupHosts[g] = append(groupHosts[g], h)
 		}
 	}
 
-	// Only emit children if there are non-empty groups
 	var activeGroups []string
 	for _, g := range groups {
 		if len(groupHosts[g]) > 0 {
@@ -98,8 +92,32 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	return b.String(), nil
+}
+
+func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) {
+	user := r.URL.Query().Get("user")
+	if user == "" {
+		user = "ubuntu"
+	}
+	sshKey := r.URL.Query().Get("ssh_key")
+	if sshKey == "" && s.cfg.VMDefaults != nil {
+		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	}
+
+	var filterVMs []string
+	if vm := r.URL.Query().Get("vm"); vm != "" {
+		filterVMs = []string{vm}
+	}
+
+	inventory, err := s.generateInventoryYAML(filterVMs, user, sshKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/x-yaml")
 	w.Header().Set("Content-Disposition", `attachment; filename="inventory.yml"`)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(b.String()))
+	w.Write([]byte(inventory))
 }

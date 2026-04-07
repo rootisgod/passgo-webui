@@ -486,6 +486,83 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		}
 		return fmt.Sprintf(`{"status":"deleted","template":"%s"}`, args.Name), nil
 
+	case "list_playbooks":
+		names, err := multipass.ListPlaybooks(s.cfg.PlaybooksDir)
+		if err != nil {
+			return toolError(err), nil
+		}
+		type entry struct {
+			Name string `json:"name"`
+		}
+		entries := make([]entry, len(names))
+		for i, n := range names {
+			entries[i] = entry{Name: n}
+		}
+		return toJSON(entries), nil
+
+	case "get_playbook":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		content, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name)
+		if err != nil {
+			return toolError(err), nil
+		}
+		return toJSON(map[string]string{"name": args.Name, "content": content}), nil
+
+	case "create_playbook":
+		var args struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if args.Name == "" || args.Content == "" {
+			return toolError(fmt.Errorf("name and content are required")), nil
+		}
+		if _, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name); err == nil {
+			return toolError(fmt.Errorf("playbook '%s' already exists", args.Name)), nil
+		}
+		if err := multipass.WritePlaybook(s.cfg.PlaybooksDir, args.Name, args.Content); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"created","playbook":"%s"}`, args.Name), nil
+
+	case "update_playbook":
+		var args struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if args.Content == "" {
+			return toolError(fmt.Errorf("content is required")), nil
+		}
+		if _, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name); err != nil {
+			return toolError(fmt.Errorf("playbook '%s' not found", args.Name)), nil
+		}
+		if err := multipass.WritePlaybook(s.cfg.PlaybooksDir, args.Name, args.Content); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"updated","playbook":"%s"}`, args.Name), nil
+
+	case "delete_playbook":
+		var args struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if err := multipass.DeletePlaybook(s.cfg.PlaybooksDir, args.Name); err != nil {
+			return toolError(err), nil
+		}
+		return fmt.Sprintf(`{"status":"deleted","playbook":"%s"}`, args.Name), nil
+
 	default:
 		return "", fmt.Errorf("unhandled tool: %s", toolName)
 	}

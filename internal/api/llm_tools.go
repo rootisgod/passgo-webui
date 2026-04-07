@@ -24,6 +24,8 @@ var readOnlyTools = map[string]bool{
 	"list_groups":                true,
 	"list_cloud_init_templates":  true,
 	"get_cloud_init_template":    true,
+	"list_playbooks":             true,
+	"get_playbook":               true,
 }
 
 // destructiveTools require user confirmation before execution.
@@ -32,6 +34,7 @@ var destructiveTools = map[string]bool{
 	"restore_snapshot":           true,
 	"delete_snapshot":            true,
 	"delete_cloud_init_template": true,
+	"delete_playbook":            true,
 }
 
 var chatTools []toolDef
@@ -360,6 +363,73 @@ func init() {
 					"type":"object",
 					"properties":{
 						"name":{"type":"string","description":"Template filename to delete"}
+					},
+					"required":["name"]
+				}`),
+			},
+		},
+		// Ansible playbooks
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "list_playbooks",
+				Description: "List all Ansible playbooks stored on the server",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "get_playbook",
+				Description: "Get the content of a specific Ansible playbook by name",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Playbook filename (e.g. 'setup-web.yml')"}
+					},
+					"required":["name"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "create_playbook",
+				Description: "Create a new Ansible playbook file. Content must be valid Ansible YAML. Filename must end in .yaml or .yml.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Playbook filename (must end in .yaml or .yml)"},
+						"content":{"type":"string","description":"Ansible playbook YAML content"}
+					},
+					"required":["name","content"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "update_playbook",
+				Description: "Update an existing Ansible playbook.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Playbook filename to update"},
+						"content":{"type":"string","description":"New Ansible playbook YAML content"}
+					},
+					"required":["name","content"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunction{
+				Name:        "delete_playbook",
+				Description: "Delete an Ansible playbook.",
+				Parameters: json.RawMessage(`{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"Playbook filename to delete"}
 					},
 					"required":["name"]
 				}`),

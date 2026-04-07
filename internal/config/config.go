@@ -34,6 +34,7 @@ type Config struct {
 	VMGroups      map[string]string `json:"vm_groups,omitempty"`
 	LLM           *LLMConfig        `json:"llm,omitempty"`
 	VMDefaults    *VMDefaults       `json:"vm_defaults,omitempty"`
+	PlaybooksDir  string            `json:"playbooks_dir,omitempty"`
 }
 
 func DefaultConfigPath() string {
@@ -77,6 +78,11 @@ func Load(path string) (*Config, error) {
 		cfg.LLM = &LLMConfig{
 			BaseURL: "https://openrouter.ai/api/v1",
 			Model:   "anthropic/claude-sonnet-4",
+		}
+	}
+	if cfg.PlaybooksDir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			cfg.PlaybooksDir = filepath.Join(home, ".passgo-web", "playbooks")
 		}
 	}
 	if cfg.VMDefaults == nil {
