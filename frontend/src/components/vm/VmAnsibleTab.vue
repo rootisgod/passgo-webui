@@ -1,6 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useVmStore } from '../../stores/vmStore.js'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
@@ -9,13 +8,12 @@ import PlaybookEditor from './PlaybookEditor.vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Plus, Save, Trash2, Play, X, RotateCcw } from 'lucide-vue-next'
+import { Plus, Save, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({
   vmName: { type: String, required: true },
 })
 
-const store = useVmStore()
 const toasts = useToastStore()
 
 // Ansible status
@@ -34,11 +32,8 @@ const newFileName = ref('')
 const saving = ref(false)
 const confirmAction = ref(null)
 
-// Target selection
-const targetVMs = ref(new Set([props.vmName]))
-const targetGroups = ref(new Set())
-
-const runningVMs = computed(() => store.vms.filter(vm => vm.state === 'Running'))
+// Target is always the current VM
+const targetVMs = computed(() => [props.vmName])
 
 // Execution state
 const isRunning = ref(false)
@@ -177,22 +172,7 @@ async function executeConfirmed() {
   if (fn) await fn()
 }
 
-function toggleVM(name) {
-  const s = new Set(targetVMs.value)
-  if (s.has(name)) s.delete(name)
-  else s.add(name)
-  targetVMs.value = s
-}
-
-function toggleGroup(name) {
-  const s = new Set(targetGroups.value)
-  if (s.has(name)) s.delete(name)
-  else s.add(name)
-  targetGroups.value = s
-}
-
-const hasTargets = computed(() => targetVMs.value.size > 0 || targetGroups.value.size > 0)
-const canRun = computed(() => selectedPlaybook.value && !isNew.value && !dirty.value && hasTargets.value && !isRunning.value && ansibleInstalled.value)
+const canRun = computed(() => selectedPlaybook.value && !isNew.value && !dirty.value && !isRunning.value && ansibleInstalled.value)
 
 async function runPlaybook() {
   if (!canRun.value) return
@@ -207,8 +187,7 @@ async function runPlaybook() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         playbook: selectedPlaybook.value,
-        vms: [...targetVMs.value],
-        groups: [...targetGroups.value],
+        vms: targetVMs.value,
       }),
       signal: abortController.signal,
     })
@@ -353,43 +332,10 @@ const statusLabel = computed(() => {
           </div>
         </div>
 
-        <!-- Target selector -->
-        <div class="w-52 flex-shrink-0 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] overflow-auto flex flex-col">
-          <div class="p-2 text-xs text-[var(--text-secondary)] uppercase tracking-wider font-medium">Targets</div>
-          <div class="px-2 flex-1 overflow-auto">
-            <div class="text-xs text-[var(--muted)] mb-1 mt-1">VMs</div>
-            <label
-              v-for="vm in runningVMs"
-              :key="vm.name"
-              class="flex items-center gap-2 px-1 py-1 text-sm cursor-pointer hover:bg-[var(--bg-primary)] rounded"
-            >
-              <input
-                type="checkbox"
-                :checked="targetVMs.has(vm.name)"
-                @change="toggleVM(vm.name)"
-                class="rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
-              />
-              <span class="truncate text-[var(--text-primary)]">{{ vm.name }}</span>
-            </label>
-
-            <template v-if="store.groups.length > 0">
-              <div class="text-xs text-[var(--muted)] mb-1 mt-3">Groups</div>
-              <label
-                v-for="group in store.groups"
-                :key="group"
-                class="flex items-center gap-2 px-1 py-1 text-sm cursor-pointer hover:bg-[var(--bg-primary)] rounded"
-              >
-                <input
-                  type="checkbox"
-                  :checked="targetGroups.has(group)"
-                  @change="toggleGroup(group)"
-                  class="rounded border-[var(--border)] text-[var(--accent)] focus:ring-[var(--accent)]"
-                />
-                <span class="truncate text-[var(--text-primary)]">{{ group }}</span>
-              </label>
-            </template>
-          </div>
-
+        <!-- Run controls -->
+        <div class="w-44 flex-shrink-0 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] flex flex-col">
+          <div class="p-2 text-xs text-[var(--text-secondary)] uppercase tracking-wider font-medium">Target</div>
+          <div class="px-3 py-2 text-sm text-[var(--text-primary)] flex-1">{{ vmName }}</div>
           <div class="p-2 border-t border-[var(--border)]">
             <button
               v-if="!isRunning"
