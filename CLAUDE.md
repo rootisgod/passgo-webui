@@ -135,6 +135,9 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - LLM tool definitions in `llm_tools.go`: 24 tools mapping to `multipass.Client` methods + config group operations + cloud-init template CRUD. Tools classified as `readOnlyTools` (list/info/get) and `destructiveTools` (delete/restore, require user confirmation).
 - LLM tool executor in `llm_executor.go`: switch dispatch from tool name to client method. Group tools use `groupMu` mutex + `config.Save()`. Tool errors returned as JSON for LLM to explain, not Go errors.
 - LLM config in `config.go`: `LLMConfig` struct with `base_url`, `api_key`, `model`, `read_only` fields, nested under `Config.LLM`
+- Launch profiles in `config.go`: `Profile` struct with id, name, release, cpus, memory_mb, disk_gb, cloud_init, network, playbook, group. Stored as `profiles` array in config.json. CRUD methods on Config, protected by `groupMu` mutex.
+- Profile-aware launch: `POST /vms` accepts optional `profile` and `playbook` fields. Resolution order: vm_defaults → profile → request overrides. Post-launch: auto-assigns group + enqueues ansible playbook.
+- Ansible run queue in `ansible_runner.go`: FIFO queue for auto-run playbooks. `enqueue()` adds to queue or starts immediately if idle. `dequeueNext()` called after each run finishes. `startFunc` callback wired to `Server.startPlaybookRun()` for building inventory + command.
 
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
@@ -181,10 +184,12 @@ Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (l
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
+Profiles:         GET/POST /profiles, PUT/DELETE /profiles/{id} (launch profile CRUD)
 Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, ?user=, ?ssh_key= override)
                    GET /ansible/status (check ansible-playbook installed + version)
                    GET/POST/PUT/DELETE /ansible/playbooks/{name} (CRUD)
                    POST /ansible/run (SSE-streamed playbook execution)
+                   GET /ansible/run/queue, DELETE /ansible/run/queue (auto-run queue)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 ```
 
@@ -193,7 +198,7 @@ Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/mo
 App.vue
 ├── LoginPage.vue
 ├── AppHeader.vue
-├── TreeSidebar.vue (host node, Cloud-Init node, group folders, VM list, context menus, multi-select + bulk actions)
+├── TreeSidebar.vue (host node, Cloud-Init, Ansible, Profiles, Settings nodes, group folders, VM list, context menus, multi-select + bulk actions)
 │   ├── ContextMenu.vue (reusable right-click menu)
 │   ├── CloneVmModal.vue
 │   ├── ConfirmModal.vue
@@ -201,8 +206,10 @@ App.vue
 │   └── MoveToGroupModal.vue (assign VM to group)
 ├── CloudInitPanel.vue (outside Transition — CodeMirror conflict)
 │   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation)
+├── AnsiblePanel.vue (top-level playbook CRUD + run with VM target dropdown, mirrors VmAnsibleTab layout)
+├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
-│   └── CreateVmModal.vue
+│   └── CreateVmModal.vue (profile dropdown, playbook auto-run selector, save-as-profile)
 ├── VmDetailPanel.vue (tabbed)
 │   ├── VmSummaryTab.vue + CloudInitStatus.vue + Sparkline.vue (resource timeline graphs)
 │   ├── VmConsoleTab.vue (multi-tab container: tab bar + N ConsoleTerminal instances)

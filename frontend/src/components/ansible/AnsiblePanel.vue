@@ -1,19 +1,17 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
-import ActionButton from '../shared/ActionButton.vue'
+import PlaybookEditor from '../vm/PlaybookEditor.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import PlaybookEditor from './PlaybookEditor.vue'
+import ActionButton from '../shared/ActionButton.vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Plus, Save, Trash2 } from 'lucide-vue-next'
+import { Plus, Trash2, Save } from 'lucide-vue-next'
 
-const props = defineProps({
-  vmName: { type: String, required: true },
-})
-
+const store = useVmStore()
 const toasts = useToastStore()
 
 // Ansible status
@@ -32,12 +30,13 @@ const newFileName = ref('')
 const saving = ref(false)
 const confirmAction = ref(null)
 
-// Target is always the current VM
-const targetVMs = computed(() => [props.vmName])
+// Target VM selection
+const targetVM = ref('')
+const runningVMs = computed(() => store.vms.filter(vm => vm.state === 'Running'))
 
 // Execution state
 const isRunning = ref(false)
-const runStatus = ref('idle') // idle | running | success | failed
+const runStatus = ref('idle')
 let abortController = null
 
 // Queue state
@@ -49,6 +48,10 @@ const termRef = ref(null)
 let term = null
 let fitAddon = null
 let resizeObserver = null
+
+const canRun = computed(() =>
+  selectedPlaybook.value && !isNew.value && !dirty.value && !isRunning.value && ansibleInstalled.value && targetVM.value
+)
 
 function initTerminal() {
   if (term || !termRef.value) return
@@ -74,93 +77,6 @@ function initTerminal() {
     if (fitAddon) fitAddon.fit()
   })
   resizeObserver.observe(termRef.value)
-}
-
-async function pollQueue() {
-  try {
-    const q = await api.getAnsibleRunQueue()
-    ansibleQueue.value = Array.isArray(q) ? q : []
-  } catch { ansibleQueue.value = [] }
-}
-
-onMounted(async () => {
-  await checkStatus()
-  await loadPlaybooks()
-  await nextTick()
-  initTerminal()
-  await checkExistingRun()
-  await pollQueue()
-  queuePollInterval = setInterval(pollQueue, 5000)
-})
-
-onUnmounted(() => {
-  if (resizeObserver) resizeObserver.disconnect()
-  if (term) { term.dispose(); term = null }
-  // Only abort the SSE stream, NOT the ansible process
-  if (abortController) abortController.abort()
-  if (queuePollInterval) clearInterval(queuePollInterval)
-})
-
-async function checkExistingRun() {
-  try {
-    const status = await api.getAnsibleRunStatus()
-    if (!status.active) return
-    // There's an active or completed run — reconnect to its output
-    selectedPlaybook.value = status.playbook
-    if (status.status === 'running') {
-      isRunning.value = true
-      runStatus.value = 'running'
-      connectToOutput()
-    } else {
-      // Completed run — replay output
-      runStatus.value = status.status === 'success' ? 'success' : 'failed'
-      connectToOutput()
-    }
-  } catch { /* no active run */ }
-}
-
-// Connect to the SSE output stream — replays buffered output then streams live
-function connectToOutput() {
-  abortController = new AbortController()
-
-  fetch('/api/v1/ansible/run/output', {
-    signal: abortController.signal,
-  }).then(async (response) => {
-    if (!response.ok) return
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const event = JSON.parse(line.slice(6))
-          if (event.type === 'output') {
-            if (term) term.writeln(event.content)
-          } else if (event.type === 'done') {
-            runStatus.value = event.exit_code === 0 ? 'success' : 'failed'
-            isRunning.value = false
-          } else if (event.type === 'error') {
-            if (term) term.writeln(`\x1b[31m${event.content}\x1b[0m`)
-            runStatus.value = 'failed'
-            isRunning.value = false
-          }
-        } catch { /* skip malformed events */ }
-      }
-    }
-  }).catch((e) => {
-    if (e.name !== 'AbortError') {
-      runStatus.value = 'failed'
-      isRunning.value = false
-    }
-  })
 }
 
 async function checkStatus() {
@@ -250,12 +166,68 @@ async function executeConfirmed() {
   if (fn) await fn()
 }
 
-const canRun = computed(() => selectedPlaybook.value && !isNew.value && !dirty.value && !isRunning.value && ansibleInstalled.value)
+async function checkExistingRun() {
+  try {
+    const status = await api.getAnsibleRunStatus()
+    if (!status.active) return
+    selectedPlaybook.value = status.playbook
+    if (status.status === 'running') {
+      isRunning.value = true
+      runStatus.value = 'running'
+      connectToOutput()
+    } else {
+      runStatus.value = status.status === 'success' ? 'success' : 'failed'
+      connectToOutput()
+    }
+  } catch { /* no active run */ }
+}
+
+function connectToOutput() {
+  abortController = new AbortController()
+
+  fetch('/api/v1/ansible/run/output', {
+    signal: abortController.signal,
+  }).then(async (response) => {
+    if (!response.ok) return
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'output') {
+            if (term) term.writeln(event.content)
+          } else if (event.type === 'done') {
+            runStatus.value = event.exit_code === 0 ? 'success' : 'failed'
+            isRunning.value = false
+          } else if (event.type === 'error') {
+            if (term) term.writeln(`\x1b[31m${event.content}\x1b[0m`)
+            runStatus.value = 'failed'
+            isRunning.value = false
+          }
+        } catch { /* skip malformed events */ }
+      }
+    }
+  }).catch((e) => {
+    if (e.name !== 'AbortError') {
+      runStatus.value = 'failed'
+      isRunning.value = false
+    }
+  })
+}
 
 async function runPlaybook() {
   if (!canRun.value) return
   if (term) term.clear()
-  // Clear any previous completed run
   try { await api.clearAnsibleRun() } catch { /* ignore */ }
 
   runStatus.value = 'running'
@@ -267,7 +239,7 @@ async function runPlaybook() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         playbook: selectedPlaybook.value,
-        vms: targetVMs.value,
+        vms: [targetVM.value],
       }),
     })
 
@@ -279,7 +251,6 @@ async function runPlaybook() {
       return
     }
 
-    // Run started — connect to the output stream
     connectToOutput()
   } catch (e) {
     if (term) term.writeln(`\x1b[31mError: ${e.message}\x1b[0m`)
@@ -298,6 +269,13 @@ async function clearOutput() {
   if (term) term.clear()
   runStatus.value = 'idle'
   try { await api.clearAnsibleRun() } catch { /* ignore */ }
+}
+
+async function pollQueue() {
+  try {
+    const q = await api.getAnsibleRunQueue()
+    ansibleQueue.value = Array.isArray(q) ? q : []
+  } catch { ansibleQueue.value = [] }
 }
 
 async function clearQueue() {
@@ -323,6 +301,23 @@ const statusLabel = computed(() => {
     case 'failed': return 'Failed'
     default: return 'Idle'
   }
+})
+
+onMounted(async () => {
+  await checkStatus()
+  await loadPlaybooks()
+  await nextTick()
+  initTerminal()
+  await checkExistingRun()
+  await pollQueue()
+  queuePollInterval = setInterval(pollQueue, 5000)
+})
+
+onUnmounted(() => {
+  if (resizeObserver) resizeObserver.disconnect()
+  if (term) { term.dispose(); term = null }
+  if (abortController) abortController.abort()
+  if (queuePollInterval) clearInterval(queuePollInterval)
 })
 </script>
 
@@ -395,7 +390,17 @@ const statusLabel = computed(() => {
         <!-- Run controls -->
         <div class="w-44 flex-shrink-0 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] flex flex-col">
           <div class="p-2 text-xs text-[var(--text-secondary)] uppercase tracking-wider font-medium">Target</div>
-          <div class="px-3 py-2 text-sm text-[var(--text-primary)] flex-1">{{ vmName }}</div>
+          <div class="px-3 py-2 flex-1">
+            <select
+              v-model="targetVM"
+              :disabled="isRunning"
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50"
+            >
+              <option value="">Select VM...</option>
+              <option v-for="vm in runningVMs" :key="vm.name" :value="vm.name">{{ vm.name }}</option>
+            </select>
+            <p v-if="runningVMs.length === 0" class="text-xs text-[var(--muted)] mt-1">No running VMs</p>
+          </div>
           <div class="p-2 border-t border-[var(--border)]">
             <button
               v-if="!isRunning"

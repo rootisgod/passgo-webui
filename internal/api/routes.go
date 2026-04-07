@@ -28,7 +28,7 @@ type Server struct {
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
-	return &Server{
+	s := &Server{
 		mp:                 mp,
 		cfg:                cfg,
 		logger:             logger,
@@ -41,6 +41,9 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		ptySessions:        newPtyStore(logger),
 		loginLimiter:       newLoginRateLimiter(5, time.Minute),
 	}
+	// Wire up ansible queue: when a queued run needs to start, use the server's startPlaybookRun
+	s.ansibleRunner.startFunc = s.startPlaybookRun
+	return s
 }
 
 // Shutdown cleans up server resources including persistent PTY sessions.
@@ -114,6 +117,12 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("PUT /api/v1/groups/{name}", s.handleRenameGroup)
 	mux.HandleFunc("DELETE /api/v1/groups/{name}", s.handleDeleteGroup)
 
+	// Profiles
+	mux.HandleFunc("GET /api/v1/profiles", s.handleListProfiles)
+	mux.HandleFunc("POST /api/v1/profiles", s.handleCreateProfile)
+	mux.HandleFunc("PUT /api/v1/profiles/{id}", s.handleUpdateProfile)
+	mux.HandleFunc("DELETE /api/v1/profiles/{id}", s.handleDeleteProfile)
+
 	// Ansible
 	mux.HandleFunc("GET /api/v1/ansible/inventory", s.handleAnsibleInventory)
 	mux.HandleFunc("GET /api/v1/ansible/status", s.handleAnsibleStatus)
@@ -127,6 +136,8 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/ansible/run/output", s.handleAnsibleRunOutput)
 	mux.HandleFunc("DELETE /api/v1/ansible/run", s.handleCancelAnsibleRun)
 	mux.HandleFunc("POST /api/v1/ansible/run/clear", s.handleClearAnsibleRun)
+	mux.HandleFunc("GET /api/v1/ansible/run/queue", s.handleAnsibleRunQueue)
+	mux.HandleFunc("DELETE /api/v1/ansible/run/queue", s.handleClearAnsibleRunQueue)
 
 	// Chat / LLM
 	mux.HandleFunc("POST /api/v1/chat", s.handleChat)

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, listGroups, dismissLaunch, getHostResources, ApiError } from '../api/client.js'
+import { listVMs, listLaunches, listGroups, listProfiles, dismissLaunch, getHostResources, ApiError } from '../api/client.js'
 import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
@@ -18,6 +18,8 @@ export const useVmStore = defineStore('vms', {
     groups: [],           // ordered list of group names
     vmGroups: {},         // {vmName: groupName}
     expandedGroups: {},   // {groupName: bool} local UI state
+    // Profiles
+    profiles: [],
   }),
 
   getters: {
@@ -85,8 +87,8 @@ export const useVmStore = defineStore('vms', {
           }
         }
 
-        // Refresh groups alongside VMs
-        await this.fetchGroups()
+        // Refresh groups and profiles alongside VMs
+        await Promise.all([this.fetchGroups(), this.fetchProfiles()])
 
         // Record host resource metrics
         if (hostData) {
@@ -111,6 +113,15 @@ export const useVmStore = defineStore('vms', {
         const data = await listGroups()
         this.groups = data.groups || []
         this.vmGroups = data.vmGroups || {}
+      } catch {
+        // Non-critical — keep existing state
+      }
+    },
+
+    async fetchProfiles() {
+      try {
+        const data = await listProfiles()
+        this.profiles = Array.isArray(data) ? data : []
       } catch {
         // Non-critical — keep existing state
       }

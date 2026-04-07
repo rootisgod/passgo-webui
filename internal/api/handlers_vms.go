@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -38,6 +39,8 @@ type createVMRequest struct {
 	DiskGB    int    `json:"diskGB"`
 	CloudInit string `json:"cloudInit"`
 	Network   string `json:"network"`
+	Profile   string `json:"profile"`
+	Playbook  string `json:"playbook"`
 }
 
 func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +48,44 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	// Resolve profile if specified: defaults → profile → request overrides
+	var profileGroup, profilePlaybook string
+	if req.Profile != "" {
+		s.groupMu.Lock()
+		p, _ := s.cfg.GetProfile(req.Profile)
+		s.groupMu.Unlock()
+		if p == nil {
+			writeError(w, http.StatusBadRequest, "profile not found: "+req.Profile)
+			return
+		}
+		// Apply profile values where request has zero/empty values
+		if req.Release == "" && p.Release != "" {
+			req.Release = p.Release
+		}
+		if req.CPUs == 0 && p.CPUs != 0 {
+			req.CPUs = p.CPUs
+		}
+		if req.MemoryMB == 0 && p.MemoryMB != 0 {
+			req.MemoryMB = p.MemoryMB
+		}
+		if req.DiskGB == 0 && p.DiskGB != 0 {
+			req.DiskGB = p.DiskGB
+		}
+		if req.CloudInit == "" && p.CloudInit != "" {
+			req.CloudInit = p.CloudInit
+		}
+		if req.Network == "" && p.Network != "" {
+			req.Network = p.Network
+		}
+		profileGroup = p.Group
+		profilePlaybook = p.Playbook
+	}
+
+	// Direct playbook field overrides profile playbook
+	if req.Playbook != "" {
+		profilePlaybook = req.Playbook
 	}
 
 	// Resolve the name now so we can return it immediately
@@ -76,6 +117,21 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 			s.launches.fail(name, err.Error())
 		} else {
 			s.launches.complete(name)
+
+			// Post-launch: assign to group if profile specified one
+			if profileGroup != "" {
+				s.groupMu.Lock()
+				s.cfg.VMGroups[name] = profileGroup
+				s.cfg.Save(config.DefaultConfigPath())
+				s.groupMu.Unlock()
+				s.logger.Info("auto-assigned VM to group", "vm", name, "group", profileGroup)
+			}
+
+			// Post-launch: enqueue playbook if profile specified one
+			if profilePlaybook != "" {
+				s.ansibleRunner.enqueue(profilePlaybook, []string{name})
+				s.logger.Info("enqueued auto-run playbook", "vm", name, "playbook", profilePlaybook)
+			}
 		}
 		// Clean up temp file if we created one
 		if cloudInitFile != req.CloudInit {

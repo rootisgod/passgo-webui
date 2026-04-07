@@ -125,6 +125,16 @@ export const getAnsibleRunStatus = () => request('GET', '/ansible/run/status')
 export const cancelAnsibleRun = () => request('DELETE', '/ansible/run')
 export const clearAnsibleRun = () => request('POST', '/ansible/run/clear')
 
+// Profiles
+export const listProfiles = () => request('GET', '/profiles')
+export const createProfile = (profile) => request('POST', '/profiles', profile)
+export const updateProfile = (id, profile) => request('PUT', `/profiles/${encodeURIComponent(id)}`, profile)
+export const deleteProfile = (id) => request('DELETE', `/profiles/${encodeURIComponent(id)}`)
+
+// Ansible queue
+export const getAnsibleRunQueue = () => request('GET', '/ansible/run/queue')
+export const clearAnsibleRunQueue = () => request('DELETE', '/ansible/run/queue')
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

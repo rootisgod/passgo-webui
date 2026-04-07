@@ -79,10 +79,19 @@ func (r *ansibleRun) unsubscribe(ch chan string) {
 	}
 }
 
-// ansibleRunner manages the current ansible run. At most one run at a time.
+// queueEntry represents a pending ansible run waiting to execute.
+type queueEntry struct {
+	Playbook string   `json:"playbook"`
+	VMs      []string `json:"vms"`
+}
+
+// ansibleRunner manages the current ansible run and a FIFO queue for auto-runs.
 type ansibleRunner struct {
 	mu      sync.Mutex
 	current *ansibleRun
+	queue   []queueEntry
+	// startFunc is called to build and start queued runs. Set by the server.
+	startFunc func(playbook string, vms []string)
 }
 
 func (ar *ansibleRunner) getCurrent() *ansibleRun {
@@ -161,6 +170,9 @@ func (ar *ansibleRunner) start(playbook string, vms []string, cmd *exec.Cmd, inv
 		if inventoryPath != "" {
 			os.Remove(inventoryPath)
 		}
+
+		// Process next queued run
+		ar.dequeueNext()
 	}()
 
 	return run
@@ -189,4 +201,54 @@ func (ar *ansibleRunner) clear() {
 	if ar.current != nil && ar.current.Status != "running" {
 		ar.current = nil
 	}
+}
+
+// enqueue adds a playbook run to the queue. If no run is active, starts immediately.
+func (ar *ansibleRunner) enqueue(playbook string, vms []string) {
+	ar.mu.Lock()
+	isIdle := ar.current == nil || ar.current.Status != "running"
+	if !isIdle {
+		ar.queue = append(ar.queue, queueEntry{Playbook: playbook, VMs: vms})
+		ar.mu.Unlock()
+		return
+	}
+	ar.mu.Unlock()
+	// Start immediately
+	if ar.startFunc != nil {
+		ar.startFunc(playbook, vms)
+	}
+}
+
+// dequeueNext starts the next queued run if any. Called after a run finishes.
+func (ar *ansibleRunner) dequeueNext() {
+	ar.mu.Lock()
+	if len(ar.queue) == 0 {
+		ar.mu.Unlock()
+		return
+	}
+	entry := ar.queue[0]
+	ar.queue = ar.queue[1:]
+	// Clear current so startFunc can set it
+	ar.current = nil
+	ar.mu.Unlock()
+
+	if ar.startFunc != nil {
+		ar.startFunc(entry.Playbook, entry.VMs)
+	}
+}
+
+// getQueue returns a copy of the current queue.
+func (ar *ansibleRunner) getQueue() []queueEntry {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	q := make([]queueEntry, len(ar.queue))
+	copy(q, ar.queue)
+	return q
+}
+
+// clearQueue removes all pending queue entries.
+func (ar *ansibleRunner) clearQueue() {
+	ar.mu.Lock()
+	defer ar.mu.Unlock()
+	ar.queue = nil
 }

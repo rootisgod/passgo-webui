@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+var profileIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type LLMConfig struct {
 	BaseURL  string `json:"base_url"`
@@ -24,6 +27,41 @@ type VMDefaults struct {
 	SSHPrivateKey  string `json:"ssh_private_key,omitempty"`
 }
 
+type Profile struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Release   string `json:"release,omitempty"`
+	CPUs      int    `json:"cpus,omitempty"`
+	MemoryMB  int    `json:"memory_mb,omitempty"`
+	DiskGB    int    `json:"disk_gb,omitempty"`
+	CloudInit string `json:"cloud_init,omitempty"`
+	Network   string `json:"network,omitempty"`
+	Playbook  string `json:"playbook,omitempty"`
+	Group     string `json:"group,omitempty"`
+}
+
+func (p *Profile) Validate() error {
+	if p.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if !profileIDRegex.MatchString(p.ID) {
+		return fmt.Errorf("id must contain only letters, numbers, hyphens, and underscores")
+	}
+	if p.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if p.CPUs < 0 || (p.CPUs > 0 && p.CPUs < 1) {
+		return fmt.Errorf("cpus must be 0 (use default) or at least 1")
+	}
+	if p.MemoryMB < 0 || (p.MemoryMB > 0 && p.MemoryMB < 512) {
+		return fmt.Errorf("memory_mb must be 0 (use default) or at least 512")
+	}
+	if p.DiskGB < 0 || (p.DiskGB > 0 && p.DiskGB < 1) {
+		return fmt.Errorf("disk_gb must be 0 (use default) or at least 1")
+	}
+	return nil
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -35,6 +73,55 @@ type Config struct {
 	LLM           *LLMConfig        `json:"llm,omitempty"`
 	VMDefaults    *VMDefaults       `json:"vm_defaults,omitempty"`
 	PlaybooksDir  string            `json:"playbooks_dir,omitempty"`
+	Profiles      []Profile         `json:"profiles,omitempty"`
+}
+
+func (c *Config) GetProfiles() []Profile {
+	if c.Profiles == nil {
+		return []Profile{}
+	}
+	return c.Profiles
+}
+
+func (c *Config) GetProfile(id string) (*Profile, int) {
+	for i := range c.Profiles {
+		if c.Profiles[i].ID == id {
+			return &c.Profiles[i], i
+		}
+	}
+	return nil, -1
+}
+
+func (c *Config) AddProfile(p Profile) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if existing, _ := c.GetProfile(p.ID); existing != nil {
+		return fmt.Errorf("profile with id %q already exists", p.ID)
+	}
+	c.Profiles = append(c.Profiles, p)
+	return nil
+}
+
+func (c *Config) UpdateProfile(p Profile) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	_, idx := c.GetProfile(p.ID)
+	if idx == -1 {
+		return fmt.Errorf("profile %q not found", p.ID)
+	}
+	c.Profiles[idx] = p
+	return nil
+}
+
+func (c *Config) DeleteProfile(id string) error {
+	_, idx := c.GetProfile(id)
+	if idx == -1 {
+		return fmt.Errorf("profile %q not found", id)
+	}
+	c.Profiles = append(c.Profiles[:idx], c.Profiles[idx+1:]...)
+	return nil
 }
 
 func DefaultConfigPath() string {

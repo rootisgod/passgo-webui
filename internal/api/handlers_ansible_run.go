@@ -273,6 +273,69 @@ func (s *Server) handleClearAnsibleRun(w http.ResponseWriter, r *http.Request) {
 	writeMessage(w, "run cleared")
 }
 
+// handleAnsibleRunQueue returns the current queue of pending ansible runs.
+func (s *Server) handleAnsibleRunQueue(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.ansibleRunner.getQueue())
+}
+
+// handleClearAnsibleRunQueue removes all pending queue entries.
+func (s *Server) handleClearAnsibleRunQueue(w http.ResponseWriter, r *http.Request) {
+	s.ansibleRunner.clearQueue()
+	writeMessage(w, "queue cleared")
+}
+
+// startPlaybookRun builds the inventory and starts an ansible-playbook execution.
+// Used by both handleRunPlaybook and the queue's startFunc.
+func (s *Server) startPlaybookRun(playbook string, vms []string) {
+	ansiblePath, err := exec.LookPath("ansible-playbook")
+	if err != nil {
+		s.logger.Error("ansible-playbook not found for queued run", "playbook", playbook)
+		return
+	}
+
+	_, err = multipass.ReadPlaybook(s.cfg.PlaybooksDir, playbook)
+	if err != nil {
+		s.logger.Error("playbook not found for queued run", "playbook", playbook, "err", err)
+		return
+	}
+	playbookPath := filepath.Join(s.cfg.PlaybooksDir, playbook)
+
+	user := "ubuntu"
+	sshKey := ""
+	if s.cfg.VMDefaults != nil {
+		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	}
+	if sshKey == "" {
+		sshKey = multipass.FindMultipassSSHKey()
+	}
+	inventory, err := s.generateInventoryYAML(vms, user, sshKey)
+	if err != nil {
+		s.logger.Error("failed to generate inventory for queued run", "err", err)
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "passgo-ansible-inventory-*.yml")
+	if err != nil {
+		s.logger.Error("failed to create temp inventory for queued run", "err", err)
+		return
+	}
+	if _, err := tmpFile.WriteString(inventory); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		s.logger.Error("failed to write inventory for queued run", "err", err)
+		return
+	}
+	tmpFile.Close()
+
+	cmd := exec.Command(ansiblePath, "-i", tmpFile.Name(), playbookPath)
+	cmd.Env = append(os.Environ(),
+		"ANSIBLE_FORCE_COLOR=true",
+		"ANSIBLE_HOST_KEY_CHECKING=False",
+	)
+
+	s.ansibleRunner.start(playbook, vms, cmd, tmpFile.Name())
+}
+
 func sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, event ansibleOutputEvent) {
 	data, err := json.Marshal(event)
 	if err != nil {
