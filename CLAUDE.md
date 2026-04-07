@@ -138,6 +138,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Launch profiles in `config.go`: `Profile` struct with id, name, release, cpus, memory_mb, disk_gb, cloud_init, network, playbook, group. Stored as `profiles` array in config.json. CRUD methods on Config, protected by `groupMu` mutex.
 - Profile-aware launch: `POST /vms` accepts optional `profile` and `playbook` fields. Resolution order: vm_defaults → profile → request overrides. Post-launch: auto-assigns group + enqueues ansible playbook.
 - Ansible run queue in `ansible_runner.go`: FIFO queue for auto-run playbooks. `enqueue()` adds to queue or starts immediately if idle. `dequeueNext()` called after each run finishes. `startFunc` callback wired to `Server.startPlaybookRun()` for building inventory + command.
+- Config export/import in `handlers_configbundle.go`: bundles config.json fields + cloud-init templates + playbooks into a single JSON file. Export strips password and LLM API key. Import merges into existing config preserving sensitive/host-specific fields. **When adding new persistent config fields, user-managed file directories, or new sections to config.json, update `handleExportConfig` and `handleImportConfig` to include them in the bundle.**
 
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
