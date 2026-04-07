@@ -121,6 +121,9 @@ export const getPlaybook = (name) => request('GET', `/ansible/playbooks/${encode
 export const createPlaybook = (name, content) => request('POST', '/ansible/playbooks', { name, content })
 export const updatePlaybook = (name, content) => request('PUT', `/ansible/playbooks/${encodeURIComponent(name)}`, { content })
 export const deletePlaybook = (name) => request('DELETE', `/ansible/playbooks/${encodeURIComponent(name)}`)
+export const getAnsibleRunStatus = () => request('GET', '/ansible/run/status')
+export const cancelAnsibleRun = () => request('DELETE', '/ansible/run')
+export const clearAnsibleRun = () => request('POST', '/ansible/run/clear')
 
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)

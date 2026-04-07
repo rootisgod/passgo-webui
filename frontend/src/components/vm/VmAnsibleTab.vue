@@ -77,13 +77,77 @@ onMounted(async () => {
   await loadPlaybooks()
   await nextTick()
   initTerminal()
+  await checkExistingRun()
 })
 
 onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect()
   if (term) { term.dispose(); term = null }
+  // Only abort the SSE stream, NOT the ansible process
   if (abortController) abortController.abort()
 })
+
+async function checkExistingRun() {
+  try {
+    const status = await api.getAnsibleRunStatus()
+    if (!status.active) return
+    // There's an active or completed run — reconnect to its output
+    selectedPlaybook.value = status.playbook
+    if (status.status === 'running') {
+      isRunning.value = true
+      runStatus.value = 'running'
+      connectToOutput()
+    } else {
+      // Completed run — replay output
+      runStatus.value = status.status === 'success' ? 'success' : 'failed'
+      connectToOutput()
+    }
+  } catch { /* no active run */ }
+}
+
+// Connect to the SSE output stream — replays buffered output then streams live
+function connectToOutput() {
+  abortController = new AbortController()
+
+  fetch('/api/v1/ansible/run/output', {
+    signal: abortController.signal,
+  }).then(async (response) => {
+    if (!response.ok) return
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop()
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'output') {
+            if (term) term.writeln(event.content)
+          } else if (event.type === 'done') {
+            runStatus.value = event.exit_code === 0 ? 'success' : 'failed'
+            isRunning.value = false
+          } else if (event.type === 'error') {
+            if (term) term.writeln(`\x1b[31m${event.content}\x1b[0m`)
+            runStatus.value = 'failed'
+            isRunning.value = false
+          }
+        } catch { /* skip malformed events */ }
+      }
+    }
+  }).catch((e) => {
+    if (e.name !== 'AbortError') {
+      runStatus.value = 'failed'
+      isRunning.value = false
+    }
+  })
+}
 
 async function checkStatus() {
   try {
@@ -177,9 +241,11 @@ const canRun = computed(() => selectedPlaybook.value && !isNew.value && !dirty.v
 async function runPlaybook() {
   if (!canRun.value) return
   if (term) term.clear()
+  // Clear any previous completed run
+  try { await api.clearAnsibleRun() } catch { /* ignore */ }
+
   runStatus.value = 'running'
   isRunning.value = true
-  abortController = new AbortController()
 
   try {
     const response = await fetch('/api/v1/ansible/run', {
@@ -189,62 +255,35 @@ async function runPlaybook() {
         playbook: selectedPlaybook.value,
         vms: targetVMs.value,
       }),
-      signal: abortController.signal,
     })
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({ error: 'Unknown error' }))
       if (term) term.writeln(`\x1b[31mError: ${err.error}\x1b[0m`)
       runStatus.value = 'failed'
+      isRunning.value = false
       return
     }
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop()
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        try {
-          const event = JSON.parse(line.slice(6))
-          if (event.type === 'output') {
-            if (term) term.writeln(event.content)
-          } else if (event.type === 'done') {
-            runStatus.value = event.exit_code === 0 ? 'success' : 'failed'
-          } else if (event.type === 'error') {
-            if (term) term.writeln(`\x1b[31m${event.content}\x1b[0m`)
-            runStatus.value = 'failed'
-          }
-        } catch { /* skip malformed events */ }
-      }
-    }
+    // Run started — connect to the output stream
+    connectToOutput()
   } catch (e) {
-    if (e.name === 'AbortError') {
-      if (term) term.writeln('\x1b[33m[Cancelled]\x1b[0m')
-      runStatus.value = 'idle'
-    } else {
-      if (term) term.writeln(`\x1b[31mError: ${e.message}\x1b[0m`)
-      runStatus.value = 'failed'
-    }
-  } finally {
+    if (term) term.writeln(`\x1b[31mError: ${e.message}\x1b[0m`)
+    runStatus.value = 'failed'
     isRunning.value = false
-    abortController = null
   }
 }
 
-function cancelRun() {
-  if (abortController) abortController.abort()
+async function cancelRun() {
+  try {
+    await api.cancelAnsibleRun()
+  } catch (e) { toasts.error(e.message) }
 }
 
-function clearOutput() {
+async function clearOutput() {
   if (term) term.clear()
   runStatus.value = 'idle'
+  try { await api.clearAnsibleRun() } catch { /* ignore */ }
 }
 
 const statusColor = computed(() => {

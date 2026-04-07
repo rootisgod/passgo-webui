@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,6 +29,14 @@ type ansibleOutputEvent struct {
 	Type     string `json:"type"`
 	Content  string `json:"content,omitempty"`
 	ExitCode int    `json:"exit_code,omitempty"`
+}
+
+type ansibleRunStatusResponse struct {
+	Active   bool     `json:"active"`
+	Playbook string   `json:"playbook,omitempty"`
+	VMs      []string `json:"vms,omitempty"`
+	Status   string   `json:"status,omitempty"`
+	ExitCode int      `json:"exit_code,omitempty"`
 }
 
 func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
@@ -60,13 +66,19 @@ func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleRunPlaybook starts a playbook run. The process runs in the background
+// and survives client disconnects. Use GET /ansible/run/output to stream output.
 func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
-	// Single concurrent run
-	if !s.ansibleRunMu.TryLock() {
-		writeError(w, http.StatusConflict, "a playbook is already running")
-		return
+	// Check if already running
+	if current := s.ansibleRunner.getCurrent(); current != nil {
+		current.mu.Lock()
+		status := current.Status
+		current.mu.Unlock()
+		if status == "running" {
+			writeError(w, http.StatusConflict, "a playbook is already running")
+			return
+		}
 	}
-	defer s.ansibleRunMu.Unlock()
 
 	var req ansibleRunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -82,14 +94,12 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify ansible-playbook exists
 	ansiblePath, err := exec.LookPath("ansible-playbook")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "ansible-playbook not found in PATH")
 		return
 	}
 
-	// Verify playbook exists
 	_, err = multipass.ReadPlaybook(s.cfg.PlaybooksDir, req.Playbook)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "playbook not found")
@@ -97,7 +107,7 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 	}
 	playbookPath := filepath.Join(s.cfg.PlaybooksDir, req.Playbook)
 
-	// Resolve target VMs: explicit VMs + VMs from selected groups
+	// Resolve target VMs
 	targetVMs := make([]string, len(req.VMs))
 	copy(targetVMs, req.VMs)
 
@@ -106,7 +116,6 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 		for vm, group := range s.cfg.VMGroups {
 			for _, g := range req.Groups {
 				if group == g {
-					// Avoid duplicates
 					found := false
 					for _, t := range targetVMs {
 						if t == vm {
@@ -135,22 +144,39 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write temp inventory
 	tmpFile, err := os.CreateTemp("", "passgo-ansible-inventory-*.yml")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create temp inventory")
 		return
 	}
-	defer os.Remove(tmpFile.Name())
-
 	if _, err := tmpFile.WriteString(inventory); err != nil {
 		tmpFile.Close()
+		os.Remove(tmpFile.Name())
 		writeError(w, http.StatusInternalServerError, "failed to write inventory")
 		return
 	}
 	tmpFile.Close()
 
-	// Set up SSE
+	cmd := exec.Command(ansiblePath, "-i", tmpFile.Name(), playbookPath)
+	cmd.Env = append(os.Environ(),
+		"ANSIBLE_FORCE_COLOR=true",
+		"ANSIBLE_HOST_KEY_CHECKING=False",
+	)
+
+	s.ansibleRunner.start(req.Playbook, targetVMs, cmd, tmpFile.Name())
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started", "playbook": req.Playbook})
+}
+
+// handleAnsibleRunOutput streams output from the current run via SSE.
+// Replays buffered output first, then streams new lines as they arrive.
+func (s *Server) handleAnsibleRunOutput(w http.ResponseWriter, r *http.Request) {
+	run := s.ansibleRunner.getCurrent()
+	if run == nil {
+		writeError(w, http.StatusNotFound, "no ansible run")
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -161,58 +187,76 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Build command
-	cmd := exec.CommandContext(r.Context(), ansiblePath, "-i", tmpFile.Name(), playbookPath)
-	cmd.Env = append(os.Environ(),
-		"ANSIBLE_FORCE_COLOR=true",
-		"ANSIBLE_HOST_KEY_CHECKING=False",
-	)
+	// Subscribe and get buffered output
+	buffered, ch := run.subscribe()
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "error", Content: "failed to create stdout pipe"})
-		return
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "error", Content: "failed to create stderr pipe"})
-		return
-	}
-
-	if err := cmd.Start(); err != nil {
-		sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "error", Content: fmt.Sprintf("failed to start ansible-playbook: %v", err)})
-		return
-	}
-
-	// Stream output from both stdout and stderr
-	lines := make(chan string, 64)
-	streamReader := func(r io.Reader) {
-		scanner := bufio.NewScanner(r)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-	}
-
-	go streamReader(stdout)
-	go func() {
-		streamReader(stderr)
-		// stderr finishes last (or at same time), signal done reading
-		// Wait for command to finish before closing channel
-		cmd.Wait()
-		close(lines)
-	}()
-
-	for line := range lines {
+	// Replay buffered output
+	for _, line := range buffered {
 		sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "output", Content: line})
 	}
 
-	exitCode := 0
-	if cmd.ProcessState != nil && !cmd.ProcessState.Success() {
-		exitCode = cmd.ProcessState.ExitCode()
+	// If already finished, send done and return
+	if ch == nil {
+		run.mu.Lock()
+		exitCode := run.ExitCode
+		run.mu.Unlock()
+		sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "done", ExitCode: exitCode})
+		return
 	}
 
-	sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "done", ExitCode: exitCode})
+	// Stream new output until run completes or client disconnects
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			run.unsubscribe(ch)
+			return
+		case line, ok := <-ch:
+			if !ok {
+				// Channel closed = run finished
+				run.mu.Lock()
+				exitCode := run.ExitCode
+				run.mu.Unlock()
+				sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "done", ExitCode: exitCode})
+				return
+			}
+			sendSSEEvent(w, flusher, ansibleOutputEvent{Type: "output", Content: line})
+		}
+	}
+}
+
+// handleAnsibleRunStatus returns the current run state without streaming.
+func (s *Server) handleAnsibleRunStatus(w http.ResponseWriter, r *http.Request) {
+	run := s.ansibleRunner.getCurrent()
+	if run == nil {
+		writeJSON(w, http.StatusOK, ansibleRunStatusResponse{Active: false})
+		return
+	}
+	run.mu.Lock()
+	resp := ansibleRunStatusResponse{
+		Active:   true,
+		Playbook: run.Playbook,
+		VMs:      run.VMs,
+		Status:   run.Status,
+		ExitCode: run.ExitCode,
+	}
+	run.mu.Unlock()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleCancelAnsibleRun cancels the current running playbook.
+func (s *Server) handleCancelAnsibleRun(w http.ResponseWriter, r *http.Request) {
+	if s.ansibleRunner.cancel() {
+		writeMessage(w, "run cancelled")
+	} else {
+		writeError(w, http.StatusNotFound, "no running playbook to cancel")
+	}
+}
+
+// handleClearAnsibleRun clears the completed run so a new one can start.
+func (s *Server) handleClearAnsibleRun(w http.ResponseWriter, r *http.Request) {
+	s.ansibleRunner.clear()
+	writeMessage(w, "run cleared")
 }
 
 func sendSSEEvent(w http.ResponseWriter, flusher http.Flusher, event ansibleOutputEvent) {
