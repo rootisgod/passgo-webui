@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -104,7 +105,9 @@ func (ar *ansibleRunner) start(playbook string, vms []string, cmd *exec.Cmd, inv
 	ar.current = run
 	ar.mu.Unlock()
 
-	// Start the process and stream output in the background
+	// Start the process in its own process group so we can kill all children
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -114,11 +117,11 @@ func (ar *ansibleRunner) start(playbook string, vms []string, cmd *exec.Cmd, inv
 		return run
 	}
 
-	// Monitor for cancel
+	// Monitor for cancel — kill entire process group
 	go func() {
 		<-ctx.Done()
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
 	}()
 

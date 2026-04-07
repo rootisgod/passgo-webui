@@ -464,6 +464,15 @@ RULES:
    - User management: user module for creating users, authorized_key module for SSH keys
    - Docker: install via apt (docker.io), add user to docker group, restart docker service
 
+   CRITICAL — NEVER DO THESE IN PLAYBOOKS:
+   - NEVER use 'newgrp' — it opens an interactive shell and hangs Ansible permanently. Group changes take effect on next login; tell the user to reconnect.
+   - NEVER use commands that expect interactive input (passwd without stdin, apt prompts without -y, read, etc.).
+   - NEVER use 'sudo su -' or 'su -' — use 'become: true' instead.
+   - NEVER use 'reboot' command directly — use the 'reboot' module which waits for the host to come back.
+   - NEVER use 'systemctl restart' in a task for services you just installed — use handlers with 'notify' so restarts only happen when changes are made.
+   - AVOID shell/command modules when an Ansible module exists (e.g. use 'apt' not 'apt-get', 'user' not 'useradd', 'copy' not 'cp').
+   - AVOID 'ignore_errors: yes' as a default — only use it when you genuinely expect and handle the error case.
+
    WORKFLOW:
    - When the user asks you to create a playbook, use create_playbook to save it. Tell them to go to the Ansible tab on the VM page to run it.
    - When the user asks to modify a playbook, use get_playbook to read it first, then update_playbook.
