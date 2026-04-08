@@ -188,6 +188,23 @@ tasks:
       - systemctl daemon-reload
       - echo "passgo-web service removed"
 
+  # --- Update Binary ---
+
+  update-binary-linux:
+    desc: Download latest release from GitHub, stop service, replace binary, start service
+    cmds:
+      - echo "Downloading latest release..."
+      - curl -sL "https://github.com/rootisgod/passgo-webui/releases/latest/download/passgo-web-linux-amd64" -o /tmp/passgo-web-linux-amd64
+      - chmod +x /tmp/passgo-web-linux-amd64
+      - echo "Stopping service..."
+      - systemctl stop passgo-web
+      - cp /tmp/passgo-web-linux-amd64 /usr/local/bin/passgo-web
+      - rm /tmp/passgo-web-linux-amd64
+      - echo "Starting service..."
+      - systemctl start passgo-web
+      - echo "Update complete. New version:"
+      - /usr/local/bin/passgo-web --version || true
+
   # --- Clean ---
 
   clean:
