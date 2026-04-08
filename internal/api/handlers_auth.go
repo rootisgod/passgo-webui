@@ -4,9 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -62,7 +60,7 @@ func (s *sessionStore) Delete(token string) {
 
 func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Rate limit by IP
-	ip := clientIP(r)
+	ip := clientIPFromRequest(r, srv.cfg.TrustProxy)
 	if !srv.loginLimiter.allow(ip) {
 		writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
 		return
@@ -94,7 +92,7 @@ func (srv *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isTLS(r),
+		Secure:   isTLS(r, srv.cfg.TrustProxy),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	})
@@ -110,39 +108,19 @@ func (srv *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isTLS(r),
+		Secure:   isTLS(r, srv.cfg.TrustProxy),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
 	writeMessage(w, "logged out")
 }
 
-// checkCredentials validates username/password. Supports both bcrypt-hashed
-// and legacy plaintext passwords (for migration).
+// checkCredentials validates username/password against the bcrypt-hashed password.
+// Plaintext passwords are auto-migrated to bcrypt on startup via MigratePassword.
 func (srv *Server) checkCredentials(username, password string) bool {
 	if username != srv.cfg.Username {
 		return false
 	}
-	// Try bcrypt first (hashed passwords start with "$2a$" or "$2b$")
-	stored := srv.cfg.Password
-	if len(stored) > 4 && stored[0] == '$' {
-		return bcrypt.CompareHashAndPassword([]byte(stored), []byte(password)) == nil
-	}
-	// Fall back to plaintext comparison for legacy configs
-	return stored == password
+	return bcrypt.CompareHashAndPassword([]byte(srv.cfg.Password), []byte(password)) == nil
 }
 
-// clientIP extracts the client IP from the request, checking X-Forwarded-For
-// for reverse proxy setups.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if ip, _, _ := strings.Cut(xff, ","); ip != "" {
-			return strings.TrimSpace(ip)
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}

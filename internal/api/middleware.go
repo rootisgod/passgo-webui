@@ -2,6 +2,7 @@ package api
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self' data:")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -180,13 +182,73 @@ func (rl *loginRateLimiter) record(ip string) {
 	rl.attempts[ip] = append(rl.attempts[ip], time.Now())
 }
 
-// isTLS returns true if the request arrived over HTTPS.
-func isTLS(r *http.Request) bool {
+// apiRateLimiter applies a per-IP sliding window rate limit to specific API paths.
+type apiRateLimiter struct {
+	mu         sync.Mutex
+	requests   map[string][]time.Time
+	max        int
+	window     time.Duration
+	trustProxy bool
+}
+
+func newAPIRateLimiter(max int, window time.Duration, trustProxy bool) *apiRateLimiter {
+	return &apiRateLimiter{
+		requests:   make(map[string][]time.Time),
+		max:        max,
+		window:     window,
+		trustProxy: trustProxy,
+	}
+}
+
+func (rl *apiRateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	recent := rl.requests[ip][:0]
+	for _, t := range rl.requests[ip] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+	rl.requests[ip] = recent
+
+	if len(recent) >= rl.max {
+		return false
+	}
+	rl.requests[ip] = append(recent, now)
+	return true
+}
+
+func (rl *apiRateLimiter) remoteIP(r *http.Request) string {
+	return clientIPFromRequest(r, rl.trustProxy)
+}
+
+// clientIPFromRequest extracts the client IP, respecting trustProxy setting.
+func clientIPFromRequest(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if ip, _, _ := strings.Cut(xff, ","); ip != "" {
+				return strings.TrimSpace(ip)
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// isTLS returns true if the request arrived over HTTPS. Only trusts
+// X-Forwarded-Proto when trustProxy is true.
+func isTLS(r *http.Request, trustProxy bool) bool {
 	if r.TLS != nil {
 		return true
 	}
-	// Check reverse proxy headers
-	if r.Header.Get("X-Forwarded-Proto") == "https" {
+	if trustProxy && r.Header.Get("X-Forwarded-Proto") == "https" {
 		return true
 	}
 	return false

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -14,8 +15,12 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return
 	}
+	if !validateRemotePath(remotePath) {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
 
-	filename := path.Base(remotePath)
+	filename := sanitizeFilename(path.Base(remotePath))
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	w.Header().Set("Content-Type", "application/octet-stream")
 
@@ -46,6 +51,10 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	if destDir == "" {
 		destDir = "/home/ubuntu"
 	}
+	if !validateRemotePath(destDir) {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
 
 	remotePath := destDir + "/" + header.Filename
 
@@ -70,6 +79,10 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
 	if dirPath == "" {
 		dirPath = "/home/ubuntu"
+	}
+	if !validateRemotePath(dirPath) {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
 	}
 
 	output, err := s.mp.ExecInVM(name, []string{"ls", "-la", dirPath})
@@ -118,4 +131,24 @@ func parseLsOutput(output string) []fileEntry {
 	}
 
 	return entries
+}
+
+// sanitizeFilename removes characters that could break HTTP headers or enable injection.
+var unsafeFilenameChars = regexp.MustCompile(`["\x00-\x1f\x7f]`)
+
+func sanitizeFilename(name string) string {
+	return unsafeFilenameChars.ReplaceAllString(name, "_")
+}
+
+// validateRemotePath checks that a remote VM path doesn't contain traversal sequences.
+func validateRemotePath(p string) bool {
+	// Reject path traversal attempts
+	if strings.Contains(p, "..") {
+		return false
+	}
+	// Must be absolute
+	if !strings.HasPrefix(p, "/") {
+		return false
+	}
+	return true
 }

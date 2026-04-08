@@ -26,6 +26,7 @@ type Server struct {
 	ansibleRunner      ansibleRunner
 	scheduler          *scheduler
 	loginLimiter       *loginRateLimiter
+	apiLimiter         *apiRateLimiter
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -41,6 +42,7 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		sessions:           newSessionStore(24 * time.Hour),
 		ptySessions:        newPtyStore(logger),
 		loginLimiter:       newLoginRateLimiter(5, time.Minute),
+		apiLimiter:         newAPIRateLimiter(30, time.Minute, cfg.TrustProxy),
 	}
 	// Wire up ansible queue: when a queued run needs to start, use the server's startPlaybookRun
 	s.ansibleRunner.startFunc = s.startPlaybookRun
@@ -53,6 +55,18 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 func (s *Server) Shutdown() {
 	s.scheduler.stop()
 	s.ptySessions.shutdown()
+}
+
+// rateLimited wraps a handler with the API rate limiter.
+func (s *Server) rateLimited(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := s.apiLimiter.remoteIP(r)
+		if !s.apiLimiter.allow(ip) {
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded, try again later")
+			return
+		}
+		handler(w, r)
+	}
 }
 
 func (s *Server) Handler(staticFS http.Handler) http.Handler {
@@ -68,7 +82,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	// VMs
 	mux.HandleFunc("GET /api/v1/vms", s.handleListVMs)
 	mux.HandleFunc("GET /api/v1/vms/{name}", s.handleGetVM)
-	mux.HandleFunc("POST /api/v1/vms", s.handleCreateVM)
+	mux.HandleFunc("POST /api/v1/vms", s.rateLimited(s.handleCreateVM))
 	mux.HandleFunc("POST /api/v1/vms/{name}/start", s.handleStartVM)
 	mux.HandleFunc("POST /api/v1/vms/{name}/stop", s.handleStopVM)
 	mux.HandleFunc("POST /api/v1/vms/{name}/suspend", s.handleSuspendVM)
@@ -154,7 +168,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/ansible/run/queue", s.handleClearAnsibleRunQueue)
 
 	// Chat / LLM
-	mux.HandleFunc("POST /api/v1/chat", s.handleChat)
+	mux.HandleFunc("POST /api/v1/chat", s.rateLimited(s.handleChat))
 	mux.HandleFunc("GET /api/v1/chat/config", s.handleGetChatConfig)
 	mux.HandleFunc("PUT /api/v1/chat/config", s.handleUpdateChatConfig)
 	mux.HandleFunc("GET /api/v1/chat/models", s.handleListModels)

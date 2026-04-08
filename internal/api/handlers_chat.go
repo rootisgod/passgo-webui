@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,9 +83,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		confirmed[id] = true
 	}
 
-	// Run agent loop, streaming events
+	// Run agent loop with timeout to prevent runaway cost
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
 	eventCh := make(chan sseEvent, 64)
-	go s.runAgentLoop(r.Context(), messages, confirmed, eventCh)
+	go s.runAgentLoop(ctx, messages, confirmed, eventCh)
 
 	for event := range eventCh {
 		data, err := json.Marshal(event)

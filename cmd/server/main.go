@@ -68,9 +68,11 @@ func main() {
 		fmt.Printf("Config: %s\n", configPath)
 	}
 
-	// Auto-migrate plaintext passwords to bcrypt
-	if err := config.MigratePassword(cfg, configPath); err != nil {
+	// Auto-migrate plaintext passwords to bcrypt (plaintext login no longer supported)
+	if migrated, err := config.MigratePassword(cfg, configPath); err != nil {
 		logger.Warn("failed to migrate password to bcrypt", "err", err)
+	} else if migrated {
+		logger.Info("migrated plaintext password to bcrypt hash")
 	}
 
 	// Override from flags

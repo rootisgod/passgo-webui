@@ -127,6 +127,7 @@ type Config struct {
 	CloudInitRepo string            `json:"cloud_init_repo"`
 	Username      string            `json:"username"`
 	Password      string            `json:"password"`
+	TrustProxy    bool              `json:"trust_proxy,omitempty"`
 	Groups        []string          `json:"groups,omitempty"`
 	VMGroups      map[string]string `json:"vm_groups,omitempty"`
 	LLM           *LLMConfig        `json:"llm,omitempty"`
@@ -340,14 +341,15 @@ func HashPassword(password string) (string, error) {
 
 // MigratePassword checks if the stored password is plaintext (not bcrypt-hashed)
 // and hashes it in place, saving the config. Call on startup to auto-migrate.
-func MigratePassword(cfg *Config, configPath string) error {
+// After migration, plaintext comparison is no longer supported — only bcrypt.
+func MigratePassword(cfg *Config, configPath string) (migrated bool, err error) {
 	if len(cfg.Password) > 0 && cfg.Password[0] != '$' {
 		hashed, err := HashPassword(cfg.Password)
 		if err != nil {
-			return err
+			return false, err
 		}
 		cfg.Password = hashed
-		return cfg.Save(configPath)
+		return true, cfg.Save(configPath)
 	}
-	return nil
+	return false, nil
 }

@@ -9,6 +9,7 @@ const chatStore = useChatStore()
 
 async function handleLogout() {
   try { await logout() } catch { /* ignore */ }
+  chatStore.clearHistory()
   store.authenticated = false
 }
 </script>

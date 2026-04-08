@@ -1,11 +1,12 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -139,7 +140,6 @@ type ptyStore struct {
 	sessions map[string]*ptySession
 	logger   *slog.Logger
 	stopCh   chan struct{}
-	counter  int64 // atomic counter for session IDs
 }
 
 func newPtyStore(logger *slog.Logger) *ptyStore {
@@ -154,7 +154,11 @@ func newPtyStore(logger *slog.Logger) *ptyStore {
 
 // create spawns a new PTY session for a VM and returns it with its session ID.
 func (store *ptyStore) create(vmName string) (*ptySession, string, error) {
-	id := fmt.Sprintf("%d", atomic.AddInt64(&store.counter, 1))
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return nil, "", fmt.Errorf("generate session ID: %w", err)
+	}
+	id := hex.EncodeToString(b)
 
 	sess, err := startPtySession(vmName, id, store)
 	if err != nil {
