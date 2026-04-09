@@ -16,6 +16,7 @@ import ProfilesPanel from './components/profiles/ProfilesPanel.vue'
 import AnsiblePanel from './components/ansible/AnsiblePanel.vue'
 import SchedulesPanel from './components/schedule/SchedulesPanel.vue'
 import ApiTokensPanel from './components/tokens/ApiTokensPanel.vue'
+import EventLogPanel from './components/events/EventLogPanel.vue'
 import Toast from './components/shared/Toast.vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 
@@ -64,6 +65,7 @@ usePolling(() => {
           <ProfilesPanel v-else-if="store.selectedNode === '__profiles__'" />
           <SchedulesPanel v-else-if="store.selectedNode === '__schedules__'" />
           <ApiTokensPanel v-else-if="store.selectedNode === '__api-tokens__'" />
+          <EventLogPanel v-else-if="store.selectedNode === '__events__'" />
           <SettingsPanel v-else-if="store.selectedNode === '__settings__'" />
           <Transition v-else name="fade" mode="out-in">
             <HostPanel v-if="store.selectedNode === null" key="host" />

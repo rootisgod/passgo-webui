@@ -40,6 +40,7 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.groupMu.Unlock()
 
+	s.eventLog.EmitHTTPEvent(r, "config", "create_profile", p.Name, "success", "")
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -72,6 +73,7 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.groupMu.Unlock()
 
+	s.eventLog.EmitHTTPEvent(r, "config", "update_profile", p.Name, "success", "")
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -93,5 +95,6 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	s.groupMu.Unlock()
 
+	s.eventLog.EmitHTTPEvent(r, "config", "delete_profile", id, "success", "")
 	writeMessage(w, "profile deleted")
 }

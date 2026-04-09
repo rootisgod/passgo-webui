@@ -143,6 +143,8 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - API tokens in `handlers_tokens.go`: persistent Bearer tokens stored as SHA-256 hashes in config.json (`APITokens []APIToken`). Token format: `pgo_` + 32 hex bytes. Raw token shown once at creation, never stored. Auth middleware checks Bearer tokens against both session store and API token hashes. CRUD handlers protected by `groupMu`. Config export excludes tokens.
 - Security: `trust_proxy` config flag (default false) gates trust of `X-Forwarded-For` and `X-Forwarded-Proto` headers. `clientIPFromRequest()` in middleware.go is the canonical IP extraction function. Login rate limiter (5/min) + API rate limiter (30/min on chat/VM creation) both use it. CSP header set in `securityHeadersMiddleware`. Plaintext passwords auto-migrated to bcrypt on startup; only bcrypt comparison supported at runtime. PTY session IDs use crypto/rand. File transfer paths validated against traversal (`validateRemotePath`). Content-Disposition filenames sanitized. Chat agent loop has 5-minute context timeout.
 
+- Event log (`eventlog.go`): append-only JSONL file at `~/.passgo-web/events.jsonl`. `EventLog` struct with in-memory cache (200 events) for fast recent queries. 10k line cap with rotation. `EmitEvent(category, action, actor, resource, result, detail)` is nil-safe. All state-changing handlers emit events. Categories: "vm", "schedule", "ansible", "llm", "config". Actors: "user", "scheduler", "llm_agent".
+
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
 - State management via Pinia stores (`vmStore.js`, `toastStore.js`, `chatStore.js`)
@@ -198,6 +200,7 @@ Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, 
                    POST /ansible/run (SSE-streamed playbook execution)
                    GET /ansible/run/queue, DELETE /ansible/run/queue (auto-run queue)
 API Tokens:       GET/POST /tokens, DELETE /tokens/{id} (persistent Bearer token CRUD)
+Event Log:        GET /events?category=&actor=&resource=&since=&limit=&before= (audit trail query)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 Config Bundle:    GET /config/export (JSON download of settings + templates + playbooks)
                    POST /config/import (restore from exported bundle, preserves password + API key)
@@ -221,6 +224,7 @@ App.vue
 ├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
 ├── SchedulesPanel.vue (scheduled operations — start/stop VMs, run playbooks on time + day schedule)
 ├── ApiTokensPanel.vue (two tabs: token CRUD + API quick-reference guide)
+├── EventLogPanel.vue (persistent audit trail — filterable by category/actor/resource/time)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue (profile dropdown, playbook auto-run selector, save-as-profile)
 ├── VmDetailPanel.vue (tabbed)

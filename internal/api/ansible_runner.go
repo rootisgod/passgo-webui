@@ -3,6 +3,7 @@ package api
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -91,6 +92,7 @@ type ansibleRunner struct {
 	queue   []queueEntry
 	// startFunc is called to build and start queued runs. Set by the server.
 	startFunc func(playbook string, vms []string)
+	eventLog  *EventLog
 }
 
 func (ar *ansibleRunner) getCurrent() *ansibleRun {
@@ -161,6 +163,8 @@ func (ar *ansibleRunner) start(playbook string, vms []string, cmd *exec.Cmd, inv
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 		run.finish(exitCode)
+		ar.eventLog.EmitEvent("ansible", "run_playbook", "user", run.Playbook,
+			run.Status, fmt.Sprintf("vms=%v exit=%d", run.VMs, exitCode))
 		cancel() // clean up context
 
 		// Clean up inventory file

@@ -198,6 +198,7 @@ func (sc *scheduler) execute(sched config.Schedule, vmGroups map[string]string) 
 			Action:       sched.Action,
 			Result:       "no_targets",
 		})
+		sc.server.eventLog.EmitEvent("schedule", sched.Action, "scheduler", sched.Name, "no_targets", "")
 		return
 	}
 
@@ -242,4 +243,10 @@ func (sc *scheduler) execute(sched config.Schedule, vmGroups map[string]string) 
 		Result:       result,
 		Errors:       errors,
 	})
+
+	detail := strings.Join(targets, ", ")
+	if len(errors) > 0 {
+		detail += "; errors: " + strings.Join(errors, "; ")
+	}
+	sc.server.eventLog.EmitEvent("schedule", sched.Action, "scheduler", sched.Name, result, detail)
 }

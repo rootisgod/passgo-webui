@@ -167,6 +167,16 @@ export const listTokens = () => request('GET', '/tokens')
 export const createToken = (name) => request('POST', '/tokens', { name })
 export const deleteToken = (id) => request('DELETE', `/tokens/${encodeURIComponent(id)}`)
 
+// Event log
+export const getEvents = (params = {}) => {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null && v !== '') qs.set(k, String(v))
+  }
+  const query = qs.toString()
+  return request('GET', '/events' + (query ? '?' + query : ''))
+}
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

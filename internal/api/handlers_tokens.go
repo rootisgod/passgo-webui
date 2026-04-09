@@ -114,6 +114,7 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 	srv.groupMu.Unlock()
 
+	srv.eventLog.EmitHTTPEvent(r, "config", "create_token", req.Name, "success", "")
 	writeJSON(w, http.StatusCreated, tokenCreateResponse{
 		ID:        id,
 		Name:      req.Name,
@@ -139,5 +140,6 @@ func (srv *Server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 	srv.groupMu.Unlock()
 
+	srv.eventLog.EmitHTTPEvent(r, "config", "delete_token", id, "success", "")
 	writeMessage(w, "token deleted")
 }

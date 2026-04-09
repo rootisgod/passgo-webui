@@ -273,6 +273,18 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 				"result_preview", truncate(result, 200),
 			)
 
+			// Emit to event log for non-read-only tools
+			if !readOnlyTools[tc.Function.Name] {
+				evResult := "success"
+				evDetail := ""
+				if err != nil {
+					evResult = "failed"
+					evDetail = err.Error()
+				}
+				resource := extractToolResource(tc.Function.Name, tc.Function.Arguments)
+				s.eventLog.EmitEvent("llm", tc.Function.Name, "llm_agent", resource, evResult, evDetail)
+			}
+
 			eventCh <- sseEvent{
 				Type:   "tool_done",
 				Name:   tc.Function.Name,
@@ -571,6 +583,23 @@ RULES:
 	}
 
 	return sb.String()
+}
+
+// extractToolResource pulls the primary resource name from a tool call's JSON args.
+func extractToolResource(toolName, argsJSON string) string {
+	var args struct {
+		Name     string `json:"name"`
+		VM       string `json:"vm"`
+		Snapshot string `json:"snapshot"`
+	}
+	json.Unmarshal([]byte(argsJSON), &args)
+	if args.Name != "" {
+		return args.Name
+	}
+	if args.VM != "" {
+		return args.VM
+	}
+	return toolName
 }
 
 // trimMessages keeps the conversation within limits by preserving the system

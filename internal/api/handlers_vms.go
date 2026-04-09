@@ -115,8 +115,10 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("VM launch failed", "name", name, "err", err)
 			s.launches.fail(name, err.Error())
+			s.eventLog.EmitEvent("vm", "create", "user", name, "failed", err.Error())
 		} else {
 			s.launches.complete(name)
+			s.eventLog.EmitEvent("vm", "create", "user", name, "success", "")
 
 			// Post-launch: assign to group if profile specified one
 			if profileGroup != "" {
@@ -164,6 +166,7 @@ func (s *Server) handleCloneVM(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("VM clone failed", "source", source, "dest", destName, "err", err)
 			s.launches.fail(destName, err.Error())
+			s.eventLog.EmitEvent("vm", "clone", "user", destName, "failed", "source="+source+": "+err.Error())
 			return
 		}
 		// If a snapshot was specified, restore the clone to that snapshot's state
@@ -171,10 +174,12 @@ func (s *Server) handleCloneVM(w http.ResponseWriter, r *http.Request) {
 			if err := s.mp.RestoreSnapshot(destName, req.Snapshot); err != nil {
 				s.logger.Error("clone snapshot restore failed", "dest", destName, "snapshot", req.Snapshot, "err", err)
 				s.launches.fail(destName, "cloned but failed to restore snapshot: "+err.Error())
+				s.eventLog.EmitEvent("vm", "clone", "user", destName, "failed", "snapshot restore failed")
 				return
 			}
 		}
 		s.launches.complete(destName)
+		s.eventLog.EmitEvent("vm", "clone", "user", destName, "success", "source="+source)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"name": destName, "message": "VM clone started"})
@@ -211,18 +216,22 @@ func (s *Server) handleDismissLaunch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.mp.StartVM(name); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "start", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "start", name, "success", "")
 	writeMessage(w, "VM started")
 }
 
 func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.mp.StopVM(name); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "stop", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "stop", name, "success", "")
 	s.ptySessions.killAllSessions(name)
 	writeMessage(w, "VM stopped")
 }
@@ -230,9 +239,11 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSuspendVM(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.mp.SuspendVM(name); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "suspend", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "suspend", name, "success", "")
 	writeMessage(w, "VM suspended")
 }
 
@@ -245,9 +256,15 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 	var req deleteVMRequest
 	json.NewDecoder(r.Body).Decode(&req) // body is optional
 	if err := s.mp.DeleteVM(name, req.Purge); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "delete", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	detail := ""
+	if req.Purge {
+		detail = "purge=true"
+	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "delete", name, "success", detail)
 	s.ptySessions.killAllSessions(name)
 	writeMessage(w, "VM deleted")
 }
@@ -255,33 +272,41 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecoverVM(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.mp.RecoverVM(name); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "recover", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "recover", name, "success", "")
 	writeMessage(w, "VM recovered")
 }
 
 func (s *Server) handleStartAll(w http.ResponseWriter, r *http.Request) {
 	if err := s.mp.StartAll(); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "success", "")
 	writeMessage(w, "all stopped VMs started")
 }
 
 func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
 	if err := s.mp.StopAll(); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "stop_all", "", "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "stop_all", "", "success", "")
 	writeMessage(w, "all running VMs stopped")
 }
 
 func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request) {
 	if err := s.mp.PurgeDeleted(); err != nil {
+		s.eventLog.EmitHTTPEvent(r, "vm", "purge", "", "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "purge", "", "success", "")
 	writeMessage(w, "deleted VMs purged")
 }
 
@@ -400,6 +425,7 @@ func (s *Server) handleResizeVM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.eventLog.EmitHTTPEvent(r, "vm", "resize", name, "success", "")
 	writeMessage(w, "VM configuration updated")
 }
 

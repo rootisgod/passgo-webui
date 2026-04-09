@@ -53,6 +53,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "create_schedule", sched.Name, "success", "")
 	writeJSON(w, http.StatusCreated, sched)
 }
 
@@ -84,6 +85,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "update_schedule", sched.Name, "success", "")
 	writeJSON(w, http.StatusOK, sched)
 }
 
@@ -104,5 +106,6 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "delete_schedule", id, "success", "")
 	writeMessage(w, "schedule deleted")
 }

@@ -8,7 +8,7 @@ import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
 import GroupNameModal from '../modals/GroupNameModal.vue'
 import MoveToGroupModal from '../modals/MoveToGroupModal.vue'
-import { Monitor, ChevronDown, ChevronRight, FileCode, Settings, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Folder, FolderOpen, FolderPlus, Pencil, ArrowRight, Plus, Layers, TerminalSquare, Clock, KeyRound } from 'lucide-vue-next'
+import { Monitor, ChevronDown, ChevronRight, FileCode, Settings, Loader2, Play, Square, Pause, Copy, Trash2, RotateCcw, CheckSquare, Folder, FolderOpen, FolderPlus, Pencil, ArrowRight, Plus, Layers, TerminalSquare, Clock, KeyRound, ScrollText } from 'lucide-vue-next'
 import { ref, computed, markRaw } from 'vue'
 
 const store = useVmStore()
@@ -355,6 +355,16 @@ async function executeConfirmed() {
       >
         <KeyRound class="w-4 h-4" />
         <span class="text-sm">API Tokens</span>
+      </div>
+
+      <!-- Event Log -->
+      <div
+        class="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors"
+        :class="store.selectedNode === '__events__' ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]'"
+        @click="store.selectNode('__events__')"
+      >
+        <ScrollText class="w-4 h-4" />
+        <span class="text-sm">Event Log</span>
       </div>
 
       <!-- Settings -->

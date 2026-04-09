@@ -64,6 +64,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "create_group", req.Name, "success", "")
 	writeMessage(w, "group created")
 }
 
@@ -101,6 +102,7 @@ func (s *Server) handleRenameGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "rename_group", req.Name, "success", "from="+oldName)
 	writeMessage(w, "group renamed")
 }
 
@@ -126,6 +128,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "delete_group", name, "success", "")
 	writeMessage(w, "group deleted")
 }
 
@@ -156,6 +159,7 @@ func (s *Server) handleAssignVmGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
+	s.eventLog.EmitHTTPEvent(r, "config", "assign_group", req.VM, "success", "group="+req.Group)
 	writeMessage(w, "vm group updated")
 }
 

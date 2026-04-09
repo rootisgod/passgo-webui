@@ -4,6 +4,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type Server struct {
 	scheduler          *scheduler
 	loginLimiter       *loginRateLimiter
 	apiLimiter         *apiRateLimiter
+	eventLog           *EventLog
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -48,6 +50,16 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 	s.ansibleRunner.startFunc = s.startPlaybookRun
 	s.scheduler = newScheduler(s)
 	s.scheduler.start()
+
+	// Event log for audit trail
+	eventsPath := filepath.Join(filepath.Dir(config.DefaultConfigPath()), "events.jsonl")
+	el, err := NewEventLog(eventsPath)
+	if err != nil {
+		logger.Error("failed to open event log", "err", err)
+	}
+	s.eventLog = el
+	s.ansibleRunner.eventLog = el
+
 	return s
 }
 
@@ -55,6 +67,9 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 func (s *Server) Shutdown() {
 	s.scheduler.stop()
 	s.ptySessions.shutdown()
+	if s.eventLog != nil {
+		s.eventLog.Close()
+	}
 }
 
 // rateLimited wraps a handler with the API rate limiter.
@@ -171,6 +186,9 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/tokens", s.handleListTokens)
 	mux.HandleFunc("POST /api/v1/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.handleDeleteToken)
+
+	// Event log
+	mux.HandleFunc("GET /api/v1/events", s.handleListEvents)
 
 	// Chat / LLM
 	mux.HandleFunc("POST /api/v1/chat", s.rateLimited(s.handleChat))
