@@ -9,6 +9,9 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 ## Features
 
 ### VM Management
+
+![VM Detail View](screenshots/vm-detail.png)
+
 - **Create, start, stop, suspend, delete, and recover** instances from the browser
 - **Clone** VMs (including from specific snapshots)
 - **Resize** CPU, memory, and disk on existing VMs
@@ -21,21 +24,28 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 - **Bulk actions** — Start All, Stop All, Purge Deleted, and Ansible Inventory download
 
 ### Web Terminal
+
+![VM Console](screenshots/vm-console.png)
+
 - **Browser-based shell** access to VMs via xterm.js and WebSocket
 - **Persistent PTY sessions** — shell processes survive page refreshes and reconnects with 64KB scrollback replay
 - **Multi-tab terminals** — open multiple independent shell sessions per VM
 
-![VM Detail View](screenshots/vm-detail.png)
-
 ### Cloud-Init Templates
+
+![Cloud-Init Editor](screenshots/cloud-init.png)
+
 - **Built-in templates** for common setups (Docker, web server, dev essentials, etc.)
 - **Custom templates** with full CRUD — create, edit, and delete your own
 - **CodeMirror 6 YAML editor** with syntax highlighting, real-time validation, cloud-init key autocomplete, search (Ctrl+F), fullscreen mode, indent guides, and word wrap toggle
 - Select templates when creating VMs to provision them automatically
 
-![Cloud-Init Editor](screenshots/cloud-init.png)
 
 ### Ansible Integration
+
+![Ansible](screenshots/ansible.png)
+
+
 - **Playbook management** — create, edit, and store Ansible playbooks in the browser
 - **Run playbooks** against VMs with target picker and SSE-streamed terminal output
 - **Inventory generation** — export Ansible inventory YAML for your Multipass VMs
@@ -56,6 +66,9 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 - **Drag-and-drop assignment** — move VMs between groups
 
 ### File Transfer
+
+![File Tansfer View](screenshots/file-transfer.png)
+
 - **Browser-based file browser** for navigating VM filesystems
 - **Upload and download** files between host and VM
 
@@ -72,6 +85,9 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 - **SSE streaming** with markdown rendering
 
 ### API & Automation
+
+![API](screenshots/api.png)
+
 - **REST API** covering all VM, snapshot, mount, cloud-init, ansible, profile, schedule, and config operations
 - **API tokens** — create persistent Bearer tokens for external automation (Postman collection included)
 - **Webhooks** — receive HTTP POST notifications when events occur, with category/result filtering and optional HMAC-SHA256 signing
@@ -80,8 +96,6 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 ### Audit & Observability
 - **Event log** — persistent audit trail of all state-changing operations with filtering by category, actor, resource, and time range
 - **API call details** — expandable view of the underlying API call for each event
-
-![Event Log](screenshots/event-log.png)
 
 ## Quick Start
 
