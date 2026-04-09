@@ -5,7 +5,8 @@ import * as api from '../../api/client.js'
 import CloudInitEditor from './CloudInitEditor.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import ActionButton from '../shared/ActionButton.vue'
-import { Plus, Trash2, Save, FileCode, AlertCircle, CheckCircle, Copy, Lock } from 'lucide-vue-next'
+import KeyboardShortcuts from '../shared/KeyboardShortcuts.vue'
+import { Plus, Trash2, Save, FileCode, AlertCircle, CheckCircle, Copy, Lock, Maximize2, Minimize2, WrapText, ExternalLink } from 'lucide-vue-next'
 import { markRaw } from 'vue'
 
 const SaveIcon = markRaw(Save)
@@ -23,6 +24,8 @@ const saving = ref(false)
 const loading = ref(true)
 const dirty = ref(false)
 const showDeleteConfirm = ref(false)
+const editorFullscreen = ref(false)
+const wordWrap = ref(false)
 
 const validation = ref({ valid: true, errors: [] })
 const errorCount = computed(() => validation.value.errors.filter(e => e.severity === 'error').length)
@@ -235,6 +238,43 @@ onUnmounted(() => {
 
         <div class="flex-1" />
 
+        <!-- Reference link -->
+        <a
+          v-if="isNew || selectedTemplate"
+          href="https://docs.cloud-init.io/en/latest/reference/examples.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors text-[var(--muted)] hover:text-[var(--accent)]"
+          title="Cloud-init reference"
+        >
+          <ExternalLink class="w-4 h-4" />
+        </a>
+
+        <!-- Word wrap toggle -->
+        <button
+          v-if="isNew || selectedTemplate"
+          @click="wordWrap = !wordWrap"
+          class="p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors"
+          :class="wordWrap ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'"
+          title="Toggle word wrap"
+        >
+          <WrapText class="w-4 h-4" />
+        </button>
+
+        <!-- Fullscreen toggle -->
+        <button
+          v-if="isNew || selectedTemplate"
+          @click="editorFullscreen = !editorFullscreen"
+          class="p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-secondary)]"
+          :title="editorFullscreen ? 'Exit fullscreen' : 'Fullscreen editor'"
+        >
+          <Minimize2 v-if="editorFullscreen" class="w-4 h-4" />
+          <Maximize2 v-else class="w-4 h-4" />
+        </button>
+
+        <!-- Keyboard shortcuts -->
+        <KeyboardShortcuts v-if="isNew || selectedTemplate" />
+
         <!-- Validation badge -->
         <div v-if="isNew || selectedTemplate" class="flex items-center gap-1.5 text-xs">
           <template v-if="errorCount > 0">
@@ -284,8 +324,11 @@ onUnmounted(() => {
         <CloudInitEditor
           :model-value="editorContent"
           :readonly="isBuiltIn"
+          :fullscreen="editorFullscreen"
+          :word-wrap="wordWrap"
           @update:model-value="onContentChange"
           @validation="onValidation"
+          @exit-fullscreen="editorFullscreen = false"
         />
       </div>
 
@@ -294,6 +337,15 @@ onUnmounted(() => {
         <div class="text-center">
           <FileCode class="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p class="text-sm">Select a template to view or create a new one</p>
+          <a
+            href="https://docs.cloud-init.io/en/latest/reference/examples.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 mt-3 text-xs text-[var(--accent)] hover:underline"
+          >
+            <ExternalLink class="w-3 h-3" />
+            Cloud-init reference & examples
+          </a>
         </div>
       </div>
     </div>

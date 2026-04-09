@@ -1,25 +1,30 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import { EditorState, Compartment } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { yaml } from '@codemirror/lang-yaml'
 import { linter, lintGutter } from '@codemirror/lint'
 import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language'
 import { closeBrackets } from '@codemirror/autocomplete'
+import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+import { indentationMarkers } from '@replit/codemirror-indentation-markers'
 import YAML from 'js-yaml'
 import { darkTheme, darkHighlightStyle } from '../cloudinit/editorTheme.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   readonly: { type: Boolean, default: false },
+  fullscreen: { type: Boolean, default: false },
+  wordWrap: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:modelValue', 'validation'])
+const emit = defineEmits(['update:modelValue', 'validation', 'exit-fullscreen'])
 
 const editorRef = ref(null)
 let view = null
 let destroyed = false
+const wrapCompartment = new Compartment()
 
 function yamlLinter() {
   return linter((editorView) => {
@@ -68,6 +73,7 @@ onMounted(() => {
     history(),
     foldGutter(),
     indentOnInput(),
+    indentationMarkers(),
     bracketMatching(),
     closeBrackets(),
     yaml(),
@@ -75,7 +81,17 @@ onMounted(() => {
     darkHighlightStyle,
     lintGutter(),
     yamlLinter(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
+    wrapCompartment.of(props.wordWrap ? EditorView.lineWrapping : []),
+    search(),
+    highlightSelectionMatches(),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+    keymap.of([{
+      key: 'Escape',
+      run: () => {
+        if (props.fullscreen) { emit('exit-fullscreen'); return true }
+        return false
+      },
+    }]),
     EditorView.updateListener.of((update) => {
       if (update.docChanged && !destroyed) {
         emit('update:modelValue', update.state.doc.toString())
@@ -96,6 +112,16 @@ onMounted(() => {
   })
 })
 
+watch(() => props.fullscreen, () => {
+  if (view) view.requestMeasure()
+})
+
+watch(() => props.wordWrap, (val) => {
+  if (view) {
+    view.dispatch({ effects: wrapCompartment.reconfigure(val ? EditorView.lineWrapping : []) })
+  }
+})
+
 watch(() => props.modelValue, (newVal) => {
   if (view && !destroyed && newVal !== view.state.doc.toString()) {
     view.dispatch({
@@ -114,5 +140,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="editorRef" class="h-full overflow-auto rounded border border-[var(--border)]" />
+  <div
+    ref="editorRef"
+    class="overflow-auto rounded border border-[var(--border)]"
+    :class="fullscreen ? 'fixed inset-0 z-30 rounded-none border-none' : 'h-full'"
+  />
 </template>

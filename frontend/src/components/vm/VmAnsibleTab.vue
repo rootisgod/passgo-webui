@@ -3,12 +3,13 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
+import KeyboardShortcuts from '../shared/KeyboardShortcuts.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import PlaybookEditor from './PlaybookEditor.vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Plus, Save, Trash2 } from 'lucide-vue-next'
+import { Plus, Save, Trash2, Maximize2, Minimize2, WrapText } from 'lucide-vue-next'
 
 const props = defineProps({
   vmName: { type: String, required: true },
@@ -31,6 +32,8 @@ const isNew = ref(false)
 const newFileName = ref('')
 const saving = ref(false)
 const confirmAction = ref(null)
+const editorFullscreen = ref(false)
+const wordWrap = ref(false)
 
 // Target is always the current VM
 const targetVMs = computed(() => [props.vmName])
@@ -351,6 +354,25 @@ const statusLabel = computed(() => {
         <ActionButton label="Save" :icon="Save" variant="success" @click="save" :disabled="!dirty && !isNew || saving || isRunning" />
         <ActionButton label="Delete" :icon="Trash2" variant="danger" @click="confirmDelete" :disabled="!selectedPlaybook || isNew || isRunning" />
         <div class="flex-1" />
+        <button
+          v-if="selectedPlaybook || isNew"
+          @click="wordWrap = !wordWrap"
+          class="p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors"
+          :class="wordWrap ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'"
+          title="Toggle word wrap"
+        >
+          <WrapText class="w-4 h-4" />
+        </button>
+        <button
+          v-if="selectedPlaybook || isNew"
+          @click="editorFullscreen = !editorFullscreen"
+          class="p-1.5 rounded hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-secondary)]"
+          :title="editorFullscreen ? 'Exit fullscreen' : 'Fullscreen editor'"
+        >
+          <Minimize2 v-if="editorFullscreen" class="w-4 h-4" />
+          <Maximize2 v-else class="w-4 h-4" />
+        </button>
+        <KeyboardShortcuts v-if="selectedPlaybook || isNew" />
         <span class="text-xs text-[var(--muted)]">{{ ansibleVersion }}</span>
       </div>
 
@@ -385,7 +407,7 @@ const statusLabel = computed(() => {
             />
           </div>
           <div class="flex-1 min-h-0" v-if="selectedPlaybook || isNew">
-            <PlaybookEditor v-model="editorContent" />
+            <PlaybookEditor v-model="editorContent" :fullscreen="editorFullscreen" :word-wrap="wordWrap" @exit-fullscreen="editorFullscreen = false" />
           </div>
           <div v-else class="flex-1 flex items-center justify-center text-sm text-[var(--muted)]">
             Select a playbook or create a new one
