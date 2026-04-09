@@ -192,6 +192,24 @@ async function doDelete() {
           <p>No API tokens yet.</p>
           <p class="mt-1">Create a token to use the REST API from scripts and external tools.</p>
         </div>
+
+        <!-- Postman Collection -->
+        <div class="mt-2 border border-[var(--border)] rounded-lg p-4 bg-[var(--bg-secondary)]/50">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-sm font-medium text-[var(--text-primary)]">Postman Collection</h4>
+              <p class="text-xs text-[var(--text-secondary)] mt-0.5">Pre-configured requests for all API endpoints. Set the <code class="bg-[var(--bg-primary)] px-1 py-0.5 rounded">token</code> and <code class="bg-[var(--bg-primary)] px-1 py-0.5 rounded">base_url</code> variables after importing.</p>
+            </div>
+            <a
+              href="/passgo-postman-collection.json"
+              download="passgo-postman-collection.json"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--accent)] hover:bg-blue-600 transition-colors text-white flex-shrink-0 ml-4"
+            >
+              <Download class="w-3.5 h-3.5" />
+              Download
+            </a>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -460,22 +478,6 @@ curl -X POST -H "Authorization: Bearer YOUR_TOKEN_HERE" \
             </div>
 
           </div>
-        </section>
-
-        <!-- Postman Collection -->
-        <section class="border-t border-[var(--border)] pt-6">
-          <h3 class="text-base font-semibold text-[var(--text-primary)] mb-3">Postman Collection</h3>
-          <p class="text-sm text-[var(--text-secondary)] mb-3">
-            Import this collection into Postman to get pre-configured requests for all endpoints. Set the <code class="bg-[var(--bg-primary)] px-1 py-0.5 rounded text-xs">token</code> and <code class="bg-[var(--bg-primary)] px-1 py-0.5 rounded text-xs">base_url</code> variables after importing.
-          </p>
-          <a
-            href="/passgo-postman-collection.json"
-            download="passgo-postman-collection.json"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--accent)] hover:bg-blue-600 transition-colors text-white"
-          >
-            <Download class="w-3.5 h-3.5" />
-            Download Collection
-          </a>
         </section>
 
       </div>
