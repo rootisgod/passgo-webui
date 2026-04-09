@@ -171,6 +171,12 @@ async function checkExistingRun() {
     const status = await api.getAnsibleRunStatus()
     if (!status.active) return
     selectedPlaybook.value = status.playbook
+    // Load the playbook content so the editor isn't blank
+    try {
+      const result = await api.getPlaybook(status.playbook)
+      editorContent.value = result.content
+      originalContent.value = result.content
+    } catch { /* playbook may have been deleted */ }
     if (status.status === 'running') {
       isRunning.value = true
       runStatus.value = 'running'
