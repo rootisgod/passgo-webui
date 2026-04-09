@@ -58,6 +58,9 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 		logger.Error("failed to open event log", "err", err)
 	}
 	s.eventLog = el
+	if el != nil {
+		el.SetDispatcher(s)
+	}
 	s.ansibleRunner.eventLog = el
 
 	return s
@@ -186,6 +189,13 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/tokens", s.handleListTokens)
 	mux.HandleFunc("POST /api/v1/tokens", s.handleCreateToken)
 	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.handleDeleteToken)
+
+	// Webhooks
+	mux.HandleFunc("GET /api/v1/webhooks", s.handleListWebhooks)
+	mux.HandleFunc("POST /api/v1/webhooks", s.handleCreateWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}", s.handleUpdateWebhook)
+	mux.HandleFunc("DELETE /api/v1/webhooks/{id}", s.handleDeleteWebhook)
+	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", s.handleTestWebhook)
 
 	// Event log
 	mux.HandleFunc("GET /api/v1/events", s.handleListEvents)

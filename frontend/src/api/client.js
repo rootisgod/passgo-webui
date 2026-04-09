@@ -167,6 +167,13 @@ export const listTokens = () => request('GET', '/tokens')
 export const createToken = (name) => request('POST', '/tokens', { name })
 export const deleteToken = (id) => request('DELETE', `/tokens/${encodeURIComponent(id)}`)
 
+// Webhooks
+export const listWebhooks = () => request('GET', '/webhooks')
+export const createWebhook = (webhook) => request('POST', '/webhooks', webhook)
+export const updateWebhook = (id, webhook) => request('PUT', `/webhooks/${encodeURIComponent(id)}`, webhook)
+export const deleteWebhook = (id) => request('DELETE', `/webhooks/${encodeURIComponent(id)}`)
+export const testWebhook = (id) => request('POST', `/webhooks/${encodeURIComponent(id)}/test`)
+
 // Event log
 export const getEvents = (params = {}) => {
   const qs = new URLSearchParams()

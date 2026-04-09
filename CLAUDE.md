@@ -143,7 +143,8 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - API tokens in `handlers_tokens.go`: persistent Bearer tokens stored as SHA-256 hashes in config.json (`APITokens []APIToken`). Token format: `pgo_` + 32 hex bytes. Raw token shown once at creation, never stored. Auth middleware checks Bearer tokens against both session store and API token hashes. CRUD handlers protected by `groupMu`. Config export excludes tokens.
 - Security: `trust_proxy` config flag (default false) gates trust of `X-Forwarded-For` and `X-Forwarded-Proto` headers. `clientIPFromRequest()` in middleware.go is the canonical IP extraction function. Login rate limiter (5/min) + API rate limiter (30/min on chat/VM creation) both use it. CSP header set in `securityHeadersMiddleware`. Plaintext passwords auto-migrated to bcrypt on startup; only bcrypt comparison supported at runtime. PTY session IDs use crypto/rand. File transfer paths validated against traversal (`validateRemotePath`). Content-Disposition filenames sanitized. Chat agent loop has 5-minute context timeout.
 
-- Event log (`eventlog.go`): append-only JSONL file at `~/.passgo-web/events.jsonl`. `EventLog` struct with in-memory cache (200 events) for fast recent queries. 10k line cap with rotation. `EmitEvent(category, action, actor, resource, result, detail)` is nil-safe. All state-changing handlers emit events. Categories: "vm", "schedule", "ansible", "llm", "config". Actors: "user", "scheduler", "llm_agent".
+- Event log (`eventlog.go`): append-only JSONL file at `~/.passgo-web/events.jsonl`. `EventLog` struct with in-memory cache (200 events) for fast recent queries. 10k line cap with rotation. `EmitEvent(category, action, actor, resource, result, detail)` is nil-safe. All state-changing handlers emit events. Categories: "vm", "schedule", "ansible", "llm", "config", "webhook". Actors: "user", "scheduler", "llm_agent", "system".
+- Webhook notifications (`webhooks.go`, `handlers_webhooks.go`): fire HTTP POST to user-configured URLs when events match category/result filters. `WebhookDispatcher` interface wired into `EventLog.Emit()` via `SetDispatcher()`. Dispatch runs in goroutines (fire-and-forget, 10s timeout). Loop prevention: events with `category == "webhook"` never trigger further webhooks. Optional HMAC-SHA256 signing via `X-PassGo-Signature` header. Config: `Webhook` struct with id, name, url, enabled, categories, results, secret, created_at. Stored as `webhooks` array in config.json. Config export excludes secret field.
 
 ### Frontend (Vue 3)
 - All components use `<script setup>` composition API
@@ -200,6 +201,7 @@ Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, 
                    POST /ansible/run (SSE-streamed playbook execution)
                    GET /ansible/run/queue, DELETE /ansible/run/queue (auto-run queue)
 API Tokens:       GET/POST /tokens, DELETE /tokens/{id} (persistent Bearer token CRUD)
+Webhooks:         GET/POST /webhooks, PUT/DELETE /webhooks/{id}, POST /webhooks/{id}/test
 Event Log:        GET /events?category=&actor=&resource=&since=&limit=&before= (audit trail query)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 Config Bundle:    GET /config/export (JSON download of settings + templates + playbooks)
@@ -224,6 +226,7 @@ App.vue
 ├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
 ├── SchedulesPanel.vue (scheduled operations — start/stop VMs, run playbooks on time + day schedule)
 ├── ApiTokensPanel.vue (two tabs: token CRUD + API quick-reference guide)
+├── WebhooksPanel.vue (webhook CRUD — category/result filters, enable/disable, test button)
 ├── EventLogPanel.vue (persistent audit trail — filterable by category/actor/resource/time)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue (profile dropdown, playbook auto-run selector, save-as-profile)
@@ -253,18 +256,6 @@ App.vue
 6. On completion: tracker clears entry; on failure: stores error, user can dismiss
 <!-- GSD:architecture-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
 
 
 

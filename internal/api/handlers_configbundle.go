@@ -27,6 +27,17 @@ type configExport struct {
 	LLM        *llmConfigExport    `json:"llm,omitempty"`
 	Profiles   []config.Profile    `json:"profiles,omitempty"`
 	Schedules  []config.Schedule   `json:"schedules,omitempty"`
+	Webhooks   []webhookExport     `json:"webhooks,omitempty"`
+}
+
+type webhookExport struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	URL        string   `json:"url"`
+	Enabled    bool     `json:"enabled"`
+	Categories []string `json:"categories,omitempty"`
+	Results    []string `json:"results,omitempty"`
+	CreatedAt  string   `json:"created_at"`
 }
 
 type llmConfigExport struct {
@@ -44,6 +55,24 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 		Profiles:   s.cfg.GetProfiles(),
 		Schedules:  s.cfg.GetSchedules(),
 	}
+	// Export webhooks without secrets
+	webhooks := s.cfg.GetWebhooks()
+	if len(webhooks) > 0 {
+		whExport := make([]webhookExport, len(webhooks))
+		for i, wh := range webhooks {
+			whExport[i] = webhookExport{
+				ID:         wh.ID,
+				Name:       wh.Name,
+				URL:        wh.URL,
+				Enabled:    wh.Enabled,
+				Categories: wh.Categories,
+				Results:    wh.Results,
+				CreatedAt:  wh.CreatedAt,
+			}
+		}
+		export.Webhooks = whExport
+	}
+
 	if s.cfg.LLM != nil {
 		export.LLM = &llmConfigExport{
 			BaseURL:  s.cfg.LLM.BaseURL,
@@ -140,6 +169,25 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if bundle.Config.Schedules != nil {
 			s.cfg.Schedules = bundle.Config.Schedules
+		}
+		if bundle.Config.Webhooks != nil {
+			imported := make([]config.Webhook, len(bundle.Config.Webhooks))
+			for i, wh := range bundle.Config.Webhooks {
+				imported[i] = config.Webhook{
+					ID:         wh.ID,
+					Name:       wh.Name,
+					URL:        wh.URL,
+					Enabled:    wh.Enabled,
+					Categories: wh.Categories,
+					Results:    wh.Results,
+					CreatedAt:  wh.CreatedAt,
+				}
+				// Preserve existing secret if webhook ID matches
+				if existing, _ := s.cfg.GetWebhook(wh.ID); existing != nil {
+					imported[i].Secret = existing.Secret
+				}
+			}
+			s.cfg.Webhooks = imported
 		}
 		if bundle.Config.LLM != nil {
 			if s.cfg.LLM == nil {

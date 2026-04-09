@@ -34,11 +34,12 @@ type Event struct {
 
 // EventLog manages an append-only JSONL event log with in-memory cache.
 type EventLog struct {
-	mu    sync.Mutex
-	file  *os.File
-	path  string
-	count int
-	cache []Event // circular buffer, newest at end
+	mu         sync.Mutex
+	file       *os.File
+	path       string
+	count      int
+	cache      []Event // circular buffer, newest at end
+	dispatcher WebhookDispatcher
 }
 
 // NewEventLog opens or creates the events file, loads recent events into cache,
@@ -86,6 +87,13 @@ func NewEventLog(path string) (*EventLog, error) {
 	return el, nil
 }
 
+// SetDispatcher sets the webhook dispatcher called after each event emission.
+func (el *EventLog) SetDispatcher(d WebhookDispatcher) {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	el.dispatcher = d
+}
+
 // Emit appends an event to the log. It auto-generates ID and Timestamp.
 func (el *EventLog) Emit(e Event) {
 	now := time.Now().UTC()
@@ -101,7 +109,6 @@ func (el *EventLog) Emit(e Event) {
 	}
 
 	el.mu.Lock()
-	defer el.mu.Unlock()
 
 	el.file.Write(append(data, '\n'))
 	el.count++
@@ -111,6 +118,14 @@ func (el *EventLog) Emit(e Event) {
 		el.cache = el.cache[1:]
 	}
 	el.cache = append(el.cache, e)
+
+	d := el.dispatcher
+	el.mu.Unlock()
+
+	// Dispatch webhooks outside the lock
+	if d != nil {
+		d.DispatchWebhooks(e)
+	}
 }
 
 // QueryOpts filters for event queries.

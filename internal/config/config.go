@@ -129,6 +129,48 @@ type APIToken struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type Webhook struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	URL        string   `json:"url"`
+	Enabled    bool     `json:"enabled"`
+	Categories []string `json:"categories,omitempty"`
+	Results    []string `json:"results,omitempty"`
+	Secret     string   `json:"secret,omitempty"`
+	CreatedAt  string   `json:"created_at"`
+}
+
+var validWebhookCategories = map[string]bool{
+	"vm": true, "schedule": true, "ansible": true, "llm": true, "config": true,
+}
+
+var validWebhookResults = map[string]bool{
+	"success": true, "failed": true, "partial": true, "no_targets": true,
+}
+
+func (w *Webhook) Validate() error {
+	if w.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if w.URL == "" {
+		return fmt.Errorf("url is required")
+	}
+	if !strings.HasPrefix(w.URL, "http://") && !strings.HasPrefix(w.URL, "https://") {
+		return fmt.Errorf("url must start with http:// or https://")
+	}
+	for _, c := range w.Categories {
+		if !validWebhookCategories[c] {
+			return fmt.Errorf("invalid category %q", c)
+		}
+	}
+	for _, r := range w.Results {
+		if !validWebhookResults[r] {
+			return fmt.Errorf("invalid result filter %q", r)
+		}
+	}
+	return nil
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -144,6 +186,7 @@ type Config struct {
 	Profiles      []Profile         `json:"profiles,omitempty"`
 	Schedules     []Schedule        `json:"schedules,omitempty"`
 	APITokens     []APIToken        `json:"api_tokens,omitempty"`
+	Webhooks      []Webhook         `json:"webhooks,omitempty"`
 }
 
 func (c *Config) GetProfiles() []Profile {
@@ -269,6 +312,54 @@ func (c *Config) DeleteAPIToken(id string) error {
 		return fmt.Errorf("api token %q not found", id)
 	}
 	c.APITokens = append(c.APITokens[:idx], c.APITokens[idx+1:]...)
+	return nil
+}
+
+func (c *Config) GetWebhooks() []Webhook {
+	if c.Webhooks == nil {
+		return []Webhook{}
+	}
+	return c.Webhooks
+}
+
+func (c *Config) GetWebhook(id string) (*Webhook, int) {
+	for i := range c.Webhooks {
+		if c.Webhooks[i].ID == id {
+			return &c.Webhooks[i], i
+		}
+	}
+	return nil, -1
+}
+
+func (c *Config) AddWebhook(w Webhook) error {
+	if err := w.Validate(); err != nil {
+		return err
+	}
+	if existing, _ := c.GetWebhook(w.ID); existing != nil {
+		return fmt.Errorf("webhook with id %q already exists", w.ID)
+	}
+	c.Webhooks = append(c.Webhooks, w)
+	return nil
+}
+
+func (c *Config) UpdateWebhook(w Webhook) error {
+	if err := w.Validate(); err != nil {
+		return err
+	}
+	_, idx := c.GetWebhook(w.ID)
+	if idx == -1 {
+		return fmt.Errorf("webhook %q not found", w.ID)
+	}
+	c.Webhooks[idx] = w
+	return nil
+}
+
+func (c *Config) DeleteWebhook(id string) error {
+	_, idx := c.GetWebhook(id)
+	if idx == -1 {
+		return fmt.Errorf("webhook %q not found", id)
+	}
+	c.Webhooks = append(c.Webhooks[:idx], c.Webhooks[idx+1:]...)
 	return nil
 }
 
