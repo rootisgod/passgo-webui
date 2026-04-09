@@ -11,7 +11,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 
 - **Tech stack:** Go 1.22+ backend, Vue 3 + Vite + Tailwind CSS v3 frontend, no additional UI component library
 - **Dependencies (backend):** `github.com/creack/pty` for PTY, `github.com/gorilla/websocket` for WebSocket, optionally `github.com/go-chi/chi/v5` if routing gets complex
-- **Dependencies (frontend):** Vue 3, Pinia, xterm.js + addons, lucide-vue-next, @tailwindcss/forms, CodeMirror 6 (@codemirror/lang-yaml, @codemirror/lint, @codemirror/view, @codemirror/state), js-yaml
+- **Dependencies (frontend):** Vue 3, Pinia, xterm.js + addons, lucide-vue-next, @tailwindcss/forms, CodeMirror 6 (@codemirror/lang-yaml, @codemirror/lint, @codemirror/view, @codemirror/state, @codemirror/search, @codemirror/autocomplete), @replit/codemirror-indentation-markers, js-yaml
 - **Binary:** Single executable with embedded frontend via `//go:embed frontend/dist/*`
 - **Config:** `~/.passgo-web/config.json` with bcrypt-hashed password
 - **No Vue Router:** Single-page app driven by tree selection, not URL routing
@@ -149,6 +149,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Styling: Tailwind utility classes with CSS custom properties (`var(--bg-primary)`, etc.) defined in `assets/main.css`
 - Modals use `<Teleport to="body">`
 - CodeMirror components must render outside Vue `<Transition>` to avoid DOM conflicts
+- Both CodeMirror editors (CloudInitEditor, PlaybookEditor) share a dark theme from `editorTheme.js` and support: search (Ctrl+F), fullscreen toggle (with exit bar), indent guides (`@replit/codemirror-indentation-markers`), word wrap toggle (via `Compartment` reconfigure), and keyboard shortcut hints (`KeyboardShortcuts.vue`). CloudInitEditor also has autocomplete for top-level cloud-init keys from `CLOUD_INIT_KEYS` dictionary.
 - Icons from `lucide-vue-next`, passed as raw components to ActionButton via `markRaw()`
 - Polling via `usePolling` composable (3s interval, pauses when tab hidden)
 - Metrics history buffered in `useMetricsHistory.js` (reactive store, recorded on each poll)
@@ -211,9 +212,10 @@ App.vue
 │   ├── ConfirmModal.vue
 │   ├── GroupNameModal.vue (create/rename group)
 │   └── MoveToGroupModal.vue (assign VM to group)
-├── CloudInitPanel.vue (outside Transition — CodeMirror conflict)
-│   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation)
+├── CloudInitPanel.vue (outside Transition — CodeMirror conflict, cloud-init reference link)
+│   └── CloudInitEditor.vue (CodeMirror 6 + js-yaml linter + cloud-init key/type validation + autocomplete)
 ├── AnsiblePanel.vue (top-level playbook CRUD + run with VM target dropdown, mirrors VmAnsibleTab layout)
+│   └── PlaybookEditor.vue (CodeMirror 6 YAML editor, no cloud-init validation)
 ├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
 ├── SchedulesPanel.vue (scheduled operations — start/stop VMs, run playbooks on time + day schedule)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
@@ -227,7 +229,7 @@ App.vue
 │   ├── VmTransferTab.vue (file browser, power-on guard)
 │   ├── VmConfigTab.vue
 │   └── VmAnsibleTab.vue (playbook CRUD + target picker + SSE output via xterm.js)
-│       └── PlaybookEditor.vue (CodeMirror 6 YAML editor, no cloud-init validation)
+│       └── PlaybookEditor.vue (shared with AnsiblePanel)
 ├── ChatPanel.vue (right-side blade, SSE streaming, confirmation banner)
 │   ├── ChatMessage.vue (user/assistant bubbles, markdown rendering, tool status)
 │   └── ChatSettingsModal.vue (provider presets, API key + Connect, model dropdown, read-only toggle)
