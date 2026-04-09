@@ -3,7 +3,13 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { usePolling } from '../../composables/usePolling.js'
 import * as api from '../../api/client.js'
-import { ScrollText, Filter, RefreshCw } from 'lucide-vue-next'
+import { ScrollText, Filter, RefreshCw, ChevronDown } from 'lucide-vue-next'
+
+const expandedEvent = ref(null)
+
+function toggleExpand(id) {
+  expandedEvent.value = expandedEvent.value === id ? null : id
+}
 
 const store = useVmStore()
 const events = ref([])
@@ -214,53 +220,71 @@ function resultClass(result) {
 
     <div v-else class="flex-1 overflow-y-auto">
       <div class="divide-y divide-[var(--border)]">
-        <div
-          v-for="e in events"
-          :key="e.id"
-          class="flex items-center gap-3 px-6 py-2.5 hover:bg-[var(--bg-hover)] text-xs"
-        >
-          <!-- Timestamp -->
-          <span class="text-[var(--text-secondary)] flex-shrink-0 w-36 font-mono">
-            {{ formatTime(e.timestamp) }}
-          </span>
+        <div v-for="e in events" :key="e.id">
+          <div class="flex items-center gap-3 px-6 py-2.5 hover:bg-[var(--bg-hover)] text-xs">
+            <!-- Timestamp -->
+            <span class="text-[var(--text-secondary)] flex-shrink-0 w-36 font-mono">
+              {{ formatTime(e.timestamp) }}
+            </span>
 
-          <!-- Category badge -->
-          <span
-            class="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase"
-            :class="categoryClass(e.category)"
+            <!-- Category badge -->
+            <span
+              class="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium uppercase"
+              :class="categoryClass(e.category)"
+            >
+              {{ e.category }}
+            </span>
+
+            <!-- Actor -->
+            <span class="flex-shrink-0 w-16 text-[var(--text-secondary)]">
+              {{ e.actor }}
+            </span>
+
+            <!-- Action -->
+            <span class="font-medium text-[var(--text-primary)] flex-shrink-0 w-28">
+              {{ e.action }}
+            </span>
+
+            <!-- Resource -->
+            <span class="text-[var(--text-primary)] truncate min-w-0 flex-1">
+              {{ e.resource }}
+            </span>
+
+            <!-- Result -->
+            <span class="flex-shrink-0 font-medium" :class="resultClass(e.result)">
+              {{ e.result }}
+            </span>
+
+            <!-- API Call button -->
+            <button
+              v-if="e.endpoint || e.detail"
+              class="flex items-center gap-1 flex-shrink-0 px-2 py-0.5 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+              @click="toggleExpand(e.id)"
+            >
+              <span>API Call</span>
+              <ChevronDown
+                class="w-3 h-3 transition-transform"
+                :class="expandedEvent === e.id ? 'rotate-180' : ''"
+              />
+            </button>
+          </div>
+
+          <!-- Expanded detail row -->
+          <div
+            v-if="expandedEvent === e.id"
+            class="px-6 pb-2.5 pt-0 ml-36 text-xs"
           >
-            {{ e.category }}
-          </span>
-
-          <!-- Actor -->
-          <span class="flex-shrink-0 w-16 text-[var(--text-secondary)]">
-            {{ e.actor }}
-          </span>
-
-          <!-- Action -->
-          <span class="font-medium text-[var(--text-primary)] flex-shrink-0 w-28">
-            {{ e.action }}
-          </span>
-
-          <!-- Resource -->
-          <span class="text-[var(--text-primary)] truncate min-w-0 flex-1">
-            {{ e.resource }}
-          </span>
-
-          <!-- Result -->
-          <span class="flex-shrink-0 font-medium" :class="resultClass(e.result)">
-            {{ e.result }}
-          </span>
-
-          <!-- Endpoint -->
-          <span v-if="e.endpoint" class="text-[var(--text-secondary)] font-mono truncate max-w-40" :title="e.endpoint">
-            {{ e.endpoint }}
-          </span>
-
-          <!-- Detail -->
-          <span v-if="e.detail" class="text-[var(--text-secondary)] truncate max-w-48" :title="e.detail">
-            {{ e.detail }}
-          </span>
+            <div class="rounded bg-[var(--bg-primary)] border border-[var(--border)] px-3 py-2 space-y-1">
+              <div v-if="e.endpoint" class="flex gap-2">
+                <span class="text-[var(--text-secondary)] flex-shrink-0">Endpoint:</span>
+                <span class="font-mono text-[var(--text-primary)]">{{ e.endpoint }}</span>
+              </div>
+              <div v-if="e.detail" class="flex gap-2">
+                <span class="text-[var(--text-secondary)] flex-shrink-0">Detail:</span>
+                <span class="text-[var(--text-primary)]">{{ e.detail }}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
