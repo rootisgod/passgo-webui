@@ -142,7 +142,7 @@ onUnmounted(() => {
 <template>
   <div
     class="overflow-hidden"
-    :class="fullscreen ? 'fixed inset-0 z-30 flex flex-col bg-[#1a1a2e]' : 'h-full rounded border border-[var(--border)]'"
+    :class="fullscreen ? 'fixed inset-0 z-30 flex flex-col bg-[#1a1a2e]' : 'h-full flex flex-col rounded border border-[var(--border)]'"
   >
     <div v-if="fullscreen" class="flex items-center justify-between px-3 py-1.5 bg-[#16213e] border-b border-[#334155] flex-shrink-0">
       <span class="text-xs text-[#94a3b8]">Fullscreen Editor</span>
