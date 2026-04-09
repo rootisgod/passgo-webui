@@ -1,12 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rootisgod/passgo-web/internal/config"
 )
 
 // maxRequestBodySize is the global limit for JSON request bodies (1 MB).
@@ -45,7 +49,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func authMiddleware(sessions *sessionStore, next http.Handler) http.Handler {
+func authMiddleware(sessions *sessionStore, cfg *config.Config, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
@@ -63,14 +67,29 @@ func authMiddleware(sessions *sessionStore, next http.Handler) http.Handler {
 
 		// Check Authorization header for API clients
 		if auth := r.Header.Get("Authorization"); len(auth) > 7 && auth[:7] == "Bearer " {
-			if sessions.Valid(auth[7:]) {
+			bearer := auth[7:]
+			// Check session store
+			if sessions.Valid(bearer) {
 				next.ServeHTTP(w, r)
 				return
+			}
+			// Check persistent API tokens
+			hash := sha256Hex(bearer)
+			for _, t := range cfg.GetAPITokens() {
+				if t.Hash == hash {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 		}
 
 		writeError(w, http.StatusUnauthorized, "authentication required")
 	})
+}
+
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
 }
 
 func isAPIPath(path string) bool {

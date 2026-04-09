@@ -121,6 +121,14 @@ func (s *Schedule) Validate() error {
 	return nil
 }
 
+type APIToken struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Prefix    string `json:"prefix"`
+	Hash      string `json:"hash"`
+	CreatedAt string `json:"created_at"`
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -135,6 +143,7 @@ type Config struct {
 	PlaybooksDir  string            `json:"playbooks_dir,omitempty"`
 	Profiles      []Profile         `json:"profiles,omitempty"`
 	Schedules     []Schedule        `json:"schedules,omitempty"`
+	APITokens     []APIToken        `json:"api_tokens,omitempty"`
 }
 
 func (c *Config) GetProfiles() []Profile {
@@ -230,6 +239,36 @@ func (c *Config) DeleteSchedule(id string) error {
 		return fmt.Errorf("schedule %q not found", id)
 	}
 	c.Schedules = append(c.Schedules[:idx], c.Schedules[idx+1:]...)
+	return nil
+}
+
+func (c *Config) GetAPITokens() []APIToken {
+	if c.APITokens == nil {
+		return []APIToken{}
+	}
+	return c.APITokens
+}
+
+func (c *Config) GetAPIToken(id string) (*APIToken, int) {
+	for i := range c.APITokens {
+		if c.APITokens[i].ID == id {
+			return &c.APITokens[i], i
+		}
+	}
+	return nil, -1
+}
+
+func (c *Config) AddAPIToken(t APIToken) error {
+	c.APITokens = append(c.APITokens, t)
+	return nil
+}
+
+func (c *Config) DeleteAPIToken(id string) error {
+	_, idx := c.GetAPIToken(id)
+	if idx == -1 {
+		return fmt.Errorf("api token %q not found", id)
+	}
+	c.APITokens = append(c.APITokens[:idx], c.APITokens[idx+1:]...)
 	return nil
 }
 

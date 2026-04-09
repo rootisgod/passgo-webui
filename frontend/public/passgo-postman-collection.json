@@ -1,0 +1,749 @@
+{
+  "info": {
+    "name": "PassGo Web API",
+    "description": "Complete API collection for PassGo Web — a management interface for Canonical Multipass.\n\nSetup:\n1. Create an API token in the PassGo Web UI (API Tokens panel)\n2. Set the `token` variable to your token value\n3. Set `base_url` to your server address (default: http://localhost:8080)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "YOUR_TOKEN_HERE",
+      "type": "string"
+    },
+    {
+      "key": "vm_name",
+      "value": "my-vm",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Virtual Machines",
+      "item": [
+        {
+          "name": "List all VMs",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms"
+          }
+        },
+        {
+          "name": "Get VM details",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}"
+          }
+        },
+        {
+          "name": "Create VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"new-vm\",\n  \"release\": \"24.04\",\n  \"cpus\": 2,\n  \"memory_mb\": 2048,\n  \"disk_gb\": 20\n}"
+            }
+          }
+        },
+        {
+          "name": "Start VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/start"
+          }
+        },
+        {
+          "name": "Stop VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/stop"
+          }
+        },
+        {
+          "name": "Suspend VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/suspend"
+          }
+        },
+        {
+          "name": "Delete VM",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"purge\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Recover VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/recover"
+          }
+        },
+        {
+          "name": "Clone VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/clone",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"cloned-vm\",\n  \"snapshot\": \"snapshot-name\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Execute command in VM",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/exec",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"command\": \"uname -a\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Start all VMs",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/start-all"
+          }
+        },
+        {
+          "name": "Stop all VMs",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/stop-all"
+          }
+        },
+        {
+          "name": "Purge deleted VMs",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/purge"
+          }
+        },
+        {
+          "name": "Get VM config",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/config"
+          }
+        },
+        {
+          "name": "Resize VM",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/config",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpus\": 4,\n  \"memory_mb\": 4096,\n  \"disk_gb\": 40\n}"
+            }
+          }
+        },
+        {
+          "name": "Cloud-init status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/cloud-init/status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Launch Tracking",
+      "item": [
+        {
+          "name": "List launches",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/launches"
+          }
+        },
+        {
+          "name": "Dismiss launch",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/launches/{{vm_name}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Snapshots",
+      "item": [
+        {
+          "name": "List snapshots",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/snapshots"
+          }
+        },
+        {
+          "name": "Create snapshot",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/snapshots",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"before-update\",\n  \"comment\": \"Snapshot before system update\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Restore snapshot",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/snapshots/before-update/restore"
+          }
+        },
+        {
+          "name": "Delete snapshot",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/snapshots/before-update"
+          }
+        }
+      ]
+    },
+    {
+      "name": "File Transfer & Mounts",
+      "item": [
+        {
+          "name": "List files in VM",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/vms/{{vm_name}}/files/ls?path=/home/ubuntu",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "vms", "{{vm_name}}", "files", "ls"],
+              "query": [
+                { "key": "path", "value": "/home/ubuntu" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download file from VM",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/vms/{{vm_name}}/files?path=/home/ubuntu/example.txt",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "vms", "{{vm_name}}", "files"],
+              "query": [
+                { "key": "path", "value": "/home/ubuntu/example.txt" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List mounts",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/mounts"
+          }
+        },
+        {
+          "name": "Add mount",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/mounts",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"/home/user/shared\",\n  \"target\": \"/mnt/shared\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Remove mount",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/vms/{{vm_name}}/mounts",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target\": \"/mnt/shared\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cloud-Init Templates",
+      "item": [
+        {
+          "name": "List templates",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/cloud-init/templates"
+          }
+        },
+        {
+          "name": "Get template",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/cloud-init/templates/docker-setup.yaml"
+          }
+        },
+        {
+          "name": "Create template",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/cloud-init/templates",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"my-template.yaml\",\n  \"content\": \"#cloud-config\\npackages:\\n  - nginx\\n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update template",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/cloud-init/templates/my-template.yaml",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"#cloud-config\\npackages:\\n  - nginx\\n  - curl\\n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete template",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/cloud-init/templates/my-template.yaml"
+          }
+        }
+      ]
+    },
+    {
+      "name": "VM Groups",
+      "item": [
+        {
+          "name": "List groups",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/groups"
+          }
+        },
+        {
+          "name": "Create group",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/groups",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"web-tier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Rename group",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/groups/web-tier",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"frontend-tier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete group",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/groups/web-tier"
+          }
+        },
+        {
+          "name": "Assign VM to group",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/groups/assign",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vm\": \"my-vm\",\n  \"group\": \"web-tier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reorder groups",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/groups/reorder",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groups\": [\"web-tier\", \"db-tier\", \"dev\"]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Launch Profiles",
+      "item": [
+        {
+          "name": "List profiles",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/profiles"
+          }
+        },
+        {
+          "name": "Create profile",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/profiles",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"web-server\",\n  \"name\": \"Web Server\",\n  \"release\": \"24.04\",\n  \"cpus\": 4,\n  \"memory_mb\": 2048,\n  \"disk_gb\": 20,\n  \"cloud_init\": \"docker-setup.yaml\",\n  \"group\": \"web-tier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/profiles/web-server",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"web-server\",\n  \"name\": \"Web Server\",\n  \"release\": \"24.04\",\n  \"cpus\": 8,\n  \"memory_mb\": 4096,\n  \"disk_gb\": 40\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete profile",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/profiles/web-server"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scheduled Operations",
+      "item": [
+        {
+          "name": "List schedules",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/schedules"
+          }
+        },
+        {
+          "name": "Create schedule",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/schedules",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"stop-dev-nightly\",\n  \"name\": \"Stop dev VMs at night\",\n  \"enabled\": true,\n  \"action\": \"stop\",\n  \"time\": \"22:00\",\n  \"days\": [1, 2, 3, 4, 5],\n  \"vms\": [\"dev-01\", \"dev-02\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Update schedule",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/schedules/stop-dev-nightly",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"stop-dev-nightly\",\n  \"name\": \"Stop dev VMs at night\",\n  \"enabled\": false,\n  \"action\": \"stop\",\n  \"time\": \"22:00\",\n  \"days\": [1, 2, 3, 4, 5],\n  \"vms\": [\"dev-01\", \"dev-02\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete schedule",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/schedules/stop-dev-nightly"
+          }
+        },
+        {
+          "name": "Run schedule now",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/schedules/stop-dev-nightly/run"
+          }
+        },
+        {
+          "name": "Schedule history",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/schedules/history"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ansible",
+      "item": [
+        {
+          "name": "Ansible status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/status"
+          }
+        },
+        {
+          "name": "Generate inventory",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/inventory"
+          }
+        },
+        {
+          "name": "List playbooks",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/playbooks"
+          }
+        },
+        {
+          "name": "Get playbook",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/playbooks/setup-nginx.yml"
+          }
+        },
+        {
+          "name": "Create playbook",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/ansible/playbooks",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"setup-nginx.yml\",\n  \"content\": \"---\\n- hosts: all\\n  become: true\\n  tasks:\\n    - name: Install nginx\\n      apt:\\n        name: nginx\\n        state: present\\n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update playbook",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/ansible/playbooks/setup-nginx.yml",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"---\\n- hosts: all\\n  become: true\\n  tasks:\\n    - name: Install nginx\\n      apt:\\n        name: nginx\\n        state: latest\\n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete playbook",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/ansible/playbooks/setup-nginx.yml"
+          }
+        },
+        {
+          "name": "Run status",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/run/status"
+          }
+        },
+        {
+          "name": "Cancel run",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/ansible/run"
+          }
+        },
+        {
+          "name": "Get run queue",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/ansible/run/queue"
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Tokens",
+      "item": [
+        {
+          "name": "List tokens",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/tokens"
+          }
+        },
+        {
+          "name": "Create token",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/tokens",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Home Assistant\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete token",
+          "request": {
+            "method": "DELETE",
+            "url": "{{base_url}}/api/v1/tokens/TOKEN_ID_HERE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Server version",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/version"
+          }
+        },
+        {
+          "name": "Host resources",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/host/resources"
+          }
+        },
+        {
+          "name": "Available images",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/images"
+          }
+        },
+        {
+          "name": "Network interfaces",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/networks"
+          }
+        },
+        {
+          "name": "Get VM defaults",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/config/vm-defaults"
+          }
+        },
+        {
+          "name": "Update VM defaults",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/config/vm-defaults",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpus\": 2,\n  \"memory_mb\": 2048,\n  \"disk_gb\": 10\n}"
+            }
+          }
+        },
+        {
+          "name": "Export config",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/config/export"
+          }
+        },
+        {
+          "name": "Chat config",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/chat/config"
+          }
+        },
+        {
+          "name": "List chat models",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/chat/models"
+          }
+        }
+      ]
+    }
+  ]
+}

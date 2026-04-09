@@ -162,6 +162,11 @@ export const deleteSchedule = (id) => request('DELETE', `/schedules/${encodeURIC
 export const runScheduleNow = (id) => request('POST', `/schedules/${encodeURIComponent(id)}/run`)
 export const getScheduleHistory = () => request('GET', '/schedules/history')
 
+// API Tokens
+export const listTokens = () => request('GET', '/tokens')
+export const createToken = (name) => request('POST', '/tokens', { name })
+export const deleteToken = (id) => request('DELETE', `/tokens/${encodeURIComponent(id)}`)
+
 // Shell sessions
 export const createShellSession = (vmName) => request('POST', `/vms/${vmName}/shell/sessions`)
 export const listShellSessions = (vmName) => request('GET', `/vms/${vmName}/shell/sessions`)

@@ -140,6 +140,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Ansible run queue in `ansible_runner.go`: FIFO queue for auto-run playbooks. `enqueue()` adds to queue or starts immediately if idle. `dequeueNext()` called after each run finishes. `startFunc` callback wired to `Server.startPlaybookRun()` for building inventory + command.
 - Config export/import in `handlers_configbundle.go`: bundles config.json fields + cloud-init templates + playbooks into a single JSON file. Export strips password and LLM API key. Import merges into existing config preserving sensitive/host-specific fields. **When adding new persistent config fields, user-managed file directories, or new sections to config.json, update `handleExportConfig` and `handleImportConfig` to include them in the bundle.**
 - Scheduled operations in `scheduler.go`: background goroutine ticks every 30s, checks enabled schedules against current time/weekday, fires start/stop VM or enqueues playbook runs. Schedules stored as `[]Schedule` in config.json. CRUD handlers in `handlers_schedule.go`. `lastFire` map prevents double-fire within same minute.
+- API tokens in `handlers_tokens.go`: persistent Bearer tokens stored as SHA-256 hashes in config.json (`APITokens []APIToken`). Token format: `pgo_` + 32 hex bytes. Raw token shown once at creation, never stored. Auth middleware checks Bearer tokens against both session store and API token hashes. CRUD handlers protected by `groupMu`. Config export excludes tokens.
 - Security: `trust_proxy` config flag (default false) gates trust of `X-Forwarded-For` and `X-Forwarded-Proto` headers. `clientIPFromRequest()` in middleware.go is the canonical IP extraction function. Login rate limiter (5/min) + API rate limiter (30/min on chat/VM creation) both use it. CSP header set in `securityHeadersMiddleware`. Plaintext passwords auto-migrated to bcrypt on startup; only bcrypt comparison supported at runtime. PTY session IDs use crypto/rand. File transfer paths validated against traversal (`validateRemotePath`). Content-Disposition filenames sanitized. Chat agent loop has 5-minute context timeout.
 
 ### Frontend (Vue 3)
@@ -196,6 +197,7 @@ Ansible:          GET /ansible/inventory (generate inventory YAML, ?vm= filter, 
                    GET/POST/PUT/DELETE /ansible/playbooks/{name} (CRUD)
                    POST /ansible/run (SSE-streamed playbook execution)
                    GET /ansible/run/queue, DELETE /ansible/run/queue (auto-run queue)
+API Tokens:       GET/POST /tokens, DELETE /tokens/{id} (persistent Bearer token CRUD)
 Chat / LLM:       POST /chat (SSE streaming), GET/PUT /chat/config, GET /chat/models
 Config Bundle:    GET /config/export (JSON download of settings + templates + playbooks)
                    POST /config/import (restore from exported bundle, preserves password + API key)
@@ -206,7 +208,7 @@ Config Bundle:    GET /config/export (JSON download of settings + templates + pl
 App.vue
 ├── LoginPage.vue
 ├── AppHeader.vue
-├── TreeSidebar.vue (host node, Cloud-Init, Ansible, Profiles, Schedules, Settings nodes, group folders, VM list, context menus, multi-select + bulk actions)
+├── TreeSidebar.vue (host node, Cloud-Init, Ansible, Profiles, Schedules, API Tokens, Settings nodes, group folders, VM list, context menus, multi-select + bulk actions)
 │   ├── ContextMenu.vue (reusable right-click menu)
 │   ├── CloneVmModal.vue
 │   ├── ConfirmModal.vue
@@ -218,6 +220,7 @@ App.vue
 │   └── PlaybookEditor.vue (CodeMirror 6 YAML editor, no cloud-init validation)
 ├── ProfilesPanel.vue (launch profile management — create/edit/delete profiles)
 ├── SchedulesPanel.vue (scheduled operations — start/stop VMs, run playbooks on time + day schedule)
+├── ApiTokensPanel.vue (two tabs: token CRUD + API quick-reference guide)
 ├── HostPanel.vue (dashboard cards, launch progress/failures)
 │   └── CreateVmModal.vue (profile dropdown, playbook auto-run selector, save-as-profile)
 ├── VmDetailPanel.vue (tabbed)

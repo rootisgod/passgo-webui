@@ -167,6 +167,11 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/ansible/run/queue", s.handleAnsibleRunQueue)
 	mux.HandleFunc("DELETE /api/v1/ansible/run/queue", s.handleClearAnsibleRunQueue)
 
+	// API Tokens
+	mux.HandleFunc("GET /api/v1/tokens", s.handleListTokens)
+	mux.HandleFunc("POST /api/v1/tokens", s.handleCreateToken)
+	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.handleDeleteToken)
+
 	// Chat / LLM
 	mux.HandleFunc("POST /api/v1/chat", s.rateLimited(s.handleChat))
 	mux.HandleFunc("GET /api/v1/chat/config", s.handleGetChatConfig)
@@ -186,7 +191,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 
 	// Apply global middleware (outermost first)
 	var handler http.Handler = mux
-	handler = authMiddleware(s.sessions, handler)
+	handler = authMiddleware(s.sessions, s.cfg, handler)
 	handler = bodySizeLimitMiddleware(handler)
 	handler = corsMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)
