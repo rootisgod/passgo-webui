@@ -57,6 +57,10 @@ function initTerminal() {
 
   termInitialized.value = true
   setupResizeObserver()
+
+  if (props.active) {
+    nextTick(() => term.focus())
+  }
 }
 
 function reconnect() {
@@ -78,7 +82,10 @@ function setupResizeObserver() {
 // When this tab becomes active, refit the terminal (xterm needs remeasure after becoming visible)
 watch(() => props.active, (isActive) => {
   if (isActive && fitAddon) {
-    nextTick(() => fitAddon.fit())
+    nextTick(() => {
+      fitAddon.fit()
+      if (term) term.focus()
+    })
   }
 })
 
