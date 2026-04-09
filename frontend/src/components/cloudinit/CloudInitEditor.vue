@@ -263,8 +263,18 @@ onUnmounted(() => {
 
 <template>
   <div
-    ref="editorRef"
-    class="overflow-auto rounded border border-[var(--border)]"
-    :class="fullscreen ? 'fixed inset-0 z-30 rounded-none border-none' : 'h-full'"
-  />
+    class="overflow-hidden"
+    :class="fullscreen ? 'fixed inset-0 z-30 flex flex-col bg-[#1a1a2e]' : 'h-full rounded border border-[var(--border)]'"
+  >
+    <div v-if="fullscreen" class="flex items-center justify-between px-3 py-1.5 bg-[#16213e] border-b border-[#334155] flex-shrink-0">
+      <span class="text-xs text-[#94a3b8]">Fullscreen Editor</span>
+      <button
+        @click="emit('exit-fullscreen')"
+        class="px-3 py-1 text-xs rounded bg-[#2a3a5c] text-[#e2e8f0] border border-[#334155] hover:bg-[#3b82f6] transition-colors"
+      >
+        Exit Fullscreen
+      </button>
+    </div>
+    <div ref="editorRef" class="flex-1 min-h-0 overflow-auto" />
+  </div>
 </template>
