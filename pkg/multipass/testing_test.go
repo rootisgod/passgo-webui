@@ -4,9 +4,24 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// loadFixture reads a captured multipass output file from testdata/. These
+// fixtures are real captures (see the commands in CLAUDE.md or regenerate
+// with `multipass <cmd> --format json > pkg/multipass/testdata/<file>.json`).
+// Using real captures catches drift when multipass changes its output format.
+func loadFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("load fixture %q: %v", name, err)
+	}
+	return string(data)
+}
 
 // discardLogger returns a logger whose output is discarded — tests rarely
 // need to assert on log output, but the Client constructor requires a logger.

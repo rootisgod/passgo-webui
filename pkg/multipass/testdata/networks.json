@@ -1,0 +1,24 @@
+{
+    "list": [
+        {
+            "description": "Wi-Fi",
+            "name": "en0",
+            "type": "wifi"
+        },
+        {
+            "description": "Ethernet Adapter (en4)",
+            "name": "en4",
+            "type": "ethernet"
+        },
+        {
+            "description": "Ethernet Adapter (en5)",
+            "name": "en5",
+            "type": "ethernet"
+        },
+        {
+            "description": "Ethernet Adapter (en6)",
+            "name": "en6",
+            "type": "ethernet"
+        }
+    ]
+}

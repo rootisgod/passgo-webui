@@ -1,0 +1,102 @@
+{
+    "blueprints (deprecated)": {
+        "anbox-cloud-appliance": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "Anbox Cloud Appliance",
+            "remote": "",
+            "version": "latest"
+        },
+        "charm-dev": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "A development and testing environment for charmers",
+            "remote": "",
+            "version": "latest"
+        },
+        "docker": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "A Docker environment with Portainer and related tools",
+            "remote": "",
+            "version": "0.4"
+        },
+        "jellyfin": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "Jellyfin is a Free Software Media System that puts you in control of managing and streaming your media.",
+            "remote": "",
+            "version": "latest"
+        },
+        "minikube": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "minikube is local Kubernetes",
+            "remote": "",
+            "version": "latest"
+        },
+        "ros2-humble": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "A development and testing environment for ROS 2 Humble.",
+            "remote": "",
+            "version": "0.1"
+        },
+        "ros2-jazzy": {
+            "aliases": [
+            ],
+            "os": "",
+            "release": "A development and testing environment for ROS 2 Jazzy.",
+            "remote": "",
+            "version": "0.1"
+        }
+    },
+    "errors": [
+    ],
+    "images": {
+        "22.04": {
+            "aliases": [
+                "jammy"
+            ],
+            "os": "Ubuntu",
+            "release": "22.04 LTS",
+            "remote": "",
+            "version": "20260320"
+        },
+        "24.04": {
+            "aliases": [
+                "noble",
+                "lts"
+            ],
+            "os": "Ubuntu",
+            "release": "24.04 LTS",
+            "remote": "",
+            "version": "20260321"
+        },
+        "25.10": {
+            "aliases": [
+                "questing"
+            ],
+            "os": "Ubuntu",
+            "release": "25.10",
+            "remote": "",
+            "version": "20260414"
+        },
+        "daily:26.04": {
+            "aliases": [
+                "resolute",
+                "devel"
+            ],
+            "os": "Ubuntu",
+            "release": "26.04 LTS",
+            "remote": "daily",
+            "version": "20260328"
+        }
+    }
+}

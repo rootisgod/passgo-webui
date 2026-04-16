@@ -1,0 +1,19 @@
+{
+    "list": [
+        {
+            "ipv4": [
+                "192.168.2.134"
+            ],
+            "name": "undamaged-batfish",
+            "release": "Ubuntu 24.04 LTS",
+            "state": "Running"
+        },
+        {
+            "ipv4": [
+            ],
+            "name": "ansible",
+            "release": "Ubuntu 24.04 LTS",
+            "state": "Stopped"
+        }
+    ]
+}
