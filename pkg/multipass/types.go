@@ -22,11 +22,16 @@ type VMInfo struct {
 }
 
 // SnapshotInfo represents a snapshot of a VM.
+// Created is an RFC3339 timestamp parsed from multipass's human-readable format;
+// empty string when parse fails. Children lets the UI pick "current" defaults
+// via the newest-by-Created heuristic without re-deriving from parent links.
 type SnapshotInfo struct {
-	Instance string `json:"instance"`
-	Name     string `json:"name"`
-	Parent   string `json:"parent"`
-	Comment  string `json:"comment"`
+	Instance string   `json:"instance"`
+	Name     string   `json:"name"`
+	Parent   string   `json:"parent"`
+	Comment  string   `json:"comment"`
+	Created  string   `json:"created,omitempty"`
+	Children []string `json:"children,omitempty"`
 }
 
 // MountInfo represents a mount point between host and VM.

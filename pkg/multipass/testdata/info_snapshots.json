@@ -1,0 +1,65 @@
+{
+    "errors": [
+    ],
+    "info": {
+        "ansible": {
+            "snapshots": {
+                "another-snaphot": {
+                    "children": [
+                    ],
+                    "comment": "",
+                    "cpu_count": "2",
+                    "created": "Thu Apr 16 20:52:52 2026 BST",
+                    "disk_space": "16.0GiB",
+                    "memory_size": "2.0GiB",
+                    "mounts": {
+                    },
+                    "parent": "other-snapshot",
+                    "size": ""
+                },
+                "extra-snapshot": {
+                    "children": [
+                    ],
+                    "comment": "",
+                    "cpu_count": "2",
+                    "created": "Thu Apr 16 20:53:27 2026 BST",
+                    "disk_space": "16.0GiB",
+                    "memory_size": "2.0GiB",
+                    "mounts": {
+                    },
+                    "parent": "test-1",
+                    "size": ""
+                },
+                "other-snapshot": {
+                    "children": [
+                        "another-snaphot"
+                    ],
+                    "comment": "",
+                    "cpu_count": "2",
+                    "created": "Thu Apr 16 20:52:24 2026 BST",
+                    "disk_space": "16.0GiB",
+                    "memory_size": "2.0GiB",
+                    "mounts": {
+                    },
+                    "parent": "test-1",
+                    "size": ""
+                },
+                "test-1": {
+                    "children": [
+                        "extra-snapshot",
+                        "other-snapshot"
+                    ],
+                    "comment": "",
+                    "cpu_count": "2",
+                    "created": "Thu Apr 16 20:52:16 2026 BST",
+                    "disk_space": "16.0GiB",
+                    "memory_size": "2.0GiB",
+                    "mounts": {
+                    },
+                    "parent": "",
+                    "size": ""
+                }
+            }
+        }
+    }
+}
