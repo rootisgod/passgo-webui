@@ -18,11 +18,14 @@ const submitting = ref(false)
 async function submit() {
   if (!name.value.trim()) return
   submitting.value = true
+  const trimmed = name.value.trim()
   try {
-    await createSnapshot(props.vmName, name.value.trim(), comment.value.trim())
-    toasts.success(`Snapshot '${name.value}' created`)
+    await createSnapshot(props.vmName, trimmed, comment.value.trim())
+    toasts.success(`Snapshot '${trimmed}' created`)
     store.fetchVMs()
-    emit('created')
+    // Emit the snapshot name so the parent can mark it as current —
+    // a freshly taken snapshot IS the current one until a restore moves away.
+    emit('created', trimmed)
     emit('close')
   } catch (e) {
     toasts.error(e.message)
