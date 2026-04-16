@@ -93,14 +93,23 @@ func (c *Client) parseInfoJSON(output string) ([]VMInfo, error) {
 
 	var vms []VMInfo
 	for name, detail := range resp.Info {
+		// Stopped VMs return an empty "release" string but populate
+		// image_release with "24.04 LTS" — fall back so the UI shows something.
+		release := detail.Release
+		if release == "" {
+			release = detail.ImageRelease
+		}
+		// snapshot_count is returned as a string like "4". Parse failures
+		// fall through to 0 — not worth bubbling up, the field is cosmetic.
+		snapCount, _ := strconv.Atoi(strings.TrimSpace(detail.SnapshotCount))
 		vm := VMInfo{
 			Name:      name,
 			State:     detail.State,
 			IPv4:      detail.IPv4,
-			Release:   detail.Release,
+			Release:   release,
 			ImageHash: detail.ImageHash,
 			CPUs:      detail.CPUs,
-			Snapshots: len(detail.Snapshots),
+			Snapshots: snapCount,
 		}
 
 		if len(detail.Load) == 3 {

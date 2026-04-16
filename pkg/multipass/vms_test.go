@@ -25,7 +25,7 @@ const infoJSONSingleVM = `{
         "/home/ubuntu/data": {"source_path": "/host/data", "uid_mappings": ["1000:1000"], "gid_mappings": ["1000:1000"]}
       },
       "ipv4": ["10.0.0.5"],
-      "snapshots": {"snap1": {"parent": "", "comment": ""}}
+      "snapshot_count": "1"
     }
   }
 }`
@@ -33,8 +33,8 @@ const infoJSONSingleVM = `{
 const infoJSONMultiVM = `{
   "errors": [],
   "info": {
-    "vm-b": {"state": "Stopped", "cpu_count": "1", "memory": {"used": 0, "total": 1073741824}, "disks": {}, "mounts": {}, "ipv4": [], "snapshots": {}},
-    "vm-a": {"state": "Running", "cpu_count": "4", "memory": {"used": 0, "total": 0}, "disks": {}, "mounts": {}, "ipv4": [], "snapshots": {}}
+    "vm-b": {"state": "Stopped", "cpu_count": "1", "memory": {"used": 0, "total": 1073741824}, "disks": {}, "mounts": {}, "ipv4": [], "snapshot_count": "0"},
+    "vm-a": {"state": "Running", "cpu_count": "4", "memory": {"used": 0, "total": 0}, "disks": {}, "mounts": {}, "ipv4": [], "snapshot_count": "0"}
   }
 }`
 
@@ -80,6 +80,61 @@ func TestParseInfoJSON_MultiVMSortedByName(t *testing.T) {
 	// Must be sorted alphabetically regardless of input map order.
 	if vms[0].Name != "vm-a" || vms[1].Name != "vm-b" {
 		t.Errorf("not sorted: %s, %s", vms[0].Name, vms[1].Name)
+	}
+}
+
+// TestParseInfoJSON_RealCapture exercises the parser against an actual
+// `multipass info --all --format json` capture. This catches drift between
+// our assumptions and the real CLI output — the snapshot_count fix was
+// motivated by a regression this test would have caught earlier.
+func TestParseInfoJSON_RealCapture(t *testing.T) {
+	c := NewClientWithRunner(discardLogger(), nil)
+	vms, err := c.parseInfoJSON(loadFixture(t, "info_all.json"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(vms) != 2 {
+		t.Fatalf("want 2 VMs, got %d", len(vms))
+	}
+
+	byName := map[string]VMInfo{}
+	for _, vm := range vms {
+		byName[vm.Name] = vm
+	}
+
+	// The stopped VM has snapshot_count="4" in the real capture. If we
+	// mis-parse that field, the UI shows 0 snapshots even when there are four.
+	ansible, ok := byName["ansible"]
+	if !ok {
+		t.Fatal("ansible VM missing from parse result")
+	}
+	if ansible.Snapshots != 4 {
+		t.Errorf("ansible.Snapshots = %d, want 4 (real snapshot_count)", ansible.Snapshots)
+	}
+	if ansible.State != "Stopped" {
+		t.Errorf("ansible.State = %q", ansible.State)
+	}
+	// Stopped VMs have empty release — parser should fall back to image_release.
+	if ansible.Release != "24.04 LTS" {
+		t.Errorf("ansible.Release = %q, want fallback to image_release", ansible.Release)
+	}
+
+	running, ok := byName["undamaged-batfish"]
+	if !ok {
+		t.Fatal("undamaged-batfish missing")
+	}
+	if running.State != "Running" || running.CPUs != "1" {
+		t.Errorf("running VM wrong: %+v", running)
+	}
+	if len(running.IPv4) != 1 || running.IPv4[0] != "192.168.2.134" {
+		t.Errorf("ipv4: %+v", running.IPv4)
+	}
+	if running.MemoryTotalRaw != 998305792 {
+		t.Errorf("memory total: %d", running.MemoryTotalRaw)
+	}
+	// Snapshot count "0" → 0.
+	if running.Snapshots != 0 {
+		t.Errorf("running.Snapshots = %d, want 0", running.Snapshots)
 	}
 }
 
@@ -273,9 +328,9 @@ func TestRecoverVM_RejectsInvalidName(t *testing.T) {
 // --- StartAll / StopAll filtering ---
 
 const mixedStateInfo = `{"errors":[],"info":{
-  "stopped-a": {"state":"Stopped","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshots":{}},
-  "running-b": {"state":"Running","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshots":{}},
-  "stopped-c": {"state":"Stopped","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshots":{}}
+  "stopped-a": {"state":"Stopped","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshot_count":"0"},
+  "running-b": {"state":"Running","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshot_count":"0"},
+  "stopped-c": {"state":"Stopped","cpu_count":"1","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshot_count":"0"}
 }}`
 
 func TestStartAll_OnlyStopped(t *testing.T) {
@@ -437,12 +492,13 @@ func TestGetVMInfo_RejectsInvalidName(t *testing.T) {
 }
 
 func TestListVMs_FallsBackToListOnInfoFailure(t *testing.T) {
-	// info --all fails, so the code falls back to `list --format json`.
-	const listJSON = `{"list":[{"name":"a","state":"Stopped","ipv4":[],"release":"Ubuntu 24.04"}]}`
+	// info --all fails (e.g. empty state, no VMs yet); code falls back to
+	// `list --format json`. Uses the real captured list.json fixture.
+	listJSON := loadFixture(t, "list.json")
 	runner := func(args ...string) (string, error) {
 		joined := strings.Join(args, " ")
 		if joined == "info --all --format json" {
-			return "", errNoVMs // simulate multipass "no VMs" failure
+			return "", errNoVMs
 		}
 		if joined == "list --format json" {
 			return listJSON, nil
@@ -455,8 +511,16 @@ func TestListVMs_FallsBackToListOnInfoFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if len(vms) != 1 || vms[0].Name != "a" {
-		t.Errorf("got %+v", vms)
+	// Fixture has two VMs: undamaged-batfish (Running) and ansible (Stopped),
+	// sorted alphabetically after parse.
+	if len(vms) != 2 {
+		t.Fatalf("want 2 VMs, got %d", len(vms))
+	}
+	if vms[0].Name != "ansible" || vms[1].Name != "undamaged-batfish" {
+		t.Errorf("fallback list not sorted: %v", vms)
+	}
+	if vms[1].State != "Running" || len(vms[1].IPv4) != 1 {
+		t.Errorf("running VM fields lost: %+v", vms[1])
 	}
 }
 

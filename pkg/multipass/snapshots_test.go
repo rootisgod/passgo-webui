@@ -42,6 +42,37 @@ func TestListSnapshots_SingleVM(t *testing.T) {
 	}
 }
 
+// TestListSnapshots_RealCapture runs against a real `multipass list --snapshots
+// --format json` output to catch upstream format drift.
+func TestListSnapshots_RealCapture(t *testing.T) {
+	runner, _ := fakeRunner(t, map[string]string{
+		"list --snapshots --format json": loadFixture(t, "list_snapshots.json"),
+	})
+	c := NewClientWithRunner(discardLogger(), runner)
+	snaps, err := c.ListSnapshots("ansible")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	// The fixture has 4 snapshots on the ansible VM.
+	if len(snaps) != 4 {
+		t.Fatalf("want 4 snapshots, got %d", len(snaps))
+	}
+	// Verify parent-chain parsing.
+	names := map[string]SnapshotInfo{}
+	for _, s := range snaps {
+		names[s.Name] = s
+	}
+	if s := names["test-1"]; s.Parent != "" {
+		t.Errorf("test-1 should have empty parent, got %q", s.Parent)
+	}
+	if s := names["other-snapshot"]; s.Parent != "test-1" {
+		t.Errorf("other-snapshot parent: %q", s.Parent)
+	}
+	if s := names["another-snaphot"]; s.Parent != "other-snapshot" {
+		t.Errorf("another-snaphot parent: %q", s.Parent)
+	}
+}
+
 func TestListSnapshots_NoSnapshotsForVM(t *testing.T) {
 	runner, _ := fakeRunner(t, map[string]string{
 		"list --snapshots --format json": snapshotListJSON,

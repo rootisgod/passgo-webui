@@ -1,0 +1,54 @@
+{
+    "errors": [
+    ],
+    "info": {
+        "ansible": {
+            "cpu_count": "",
+            "disks": {
+                "sda1": {
+                }
+            },
+            "image_hash": "1ea801e659d2f5035ac294e0faab0aac9b6ba66753df933ba5c7beab0c689bd0",
+            "image_release": "24.04 LTS",
+            "ipv4": [
+            ],
+            "load": [
+            ],
+            "memory": {
+            },
+            "mounts": {
+            },
+            "release": "",
+            "snapshot_count": "4",
+            "state": "Stopped"
+        },
+        "undamaged-batfish": {
+            "cpu_count": "1",
+            "disks": {
+                "sda1": {
+                    "total": "5119532032",
+                    "used": "2220190208"
+                }
+            },
+            "image_hash": "1ea801e659d2f5035ac294e0faab0aac9b6ba66753df933ba5c7beab0c689bd0",
+            "image_release": "24.04 LTS",
+            "ipv4": [
+                "192.168.2.134"
+            ],
+            "load": [
+                0.03,
+                0.06,
+                0.02
+            ],
+            "memory": {
+                "total": 998305792,
+                "used": 236474368
+            },
+            "mounts": {
+            },
+            "release": "Ubuntu 24.04.4 LTS",
+            "snapshot_count": "0",
+            "state": "Running"
+        }
+    }
+}

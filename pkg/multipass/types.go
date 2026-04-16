@@ -85,17 +85,19 @@ type infoJSONResponse struct {
 }
 
 type infoJSONVMDetail struct {
-	State       string                       `json:"state"`
-	ImageHash   string                       `json:"image_hash"`
-	ImageRelease string                      `json:"image_release"`
-	Release     string                       `json:"release"`
-	CPUs        string                       `json:"cpu_count"`
-	Load        []float64                    `json:"load"`
-	Disks       map[string]infoJSONDisk      `json:"disks"`
-	Memory      infoJSONMemory               `json:"memory"`
-	Mounts      map[string]infoJSONMount     `json:"mounts"`
-	IPv4        []string                     `json:"ipv4"`
-	Snapshots   map[string]infoJSONSnapshot  `json:"snapshots"`
+	State         string                   `json:"state"`
+	ImageHash     string                   `json:"image_hash"`
+	ImageRelease  string                   `json:"image_release"`
+	Release       string                   `json:"release"`
+	CPUs          string                   `json:"cpu_count"`
+	Load          []float64                `json:"load"`
+	Disks         map[string]infoJSONDisk  `json:"disks"`
+	Memory        infoJSONMemory           `json:"memory"`
+	Mounts        map[string]infoJSONMount `json:"mounts"`
+	IPv4          []string                 `json:"ipv4"`
+	// multipass info returns snapshot_count as a string ("4"), not a map.
+	// `multipass list --snapshots` is the endpoint that returns full snapshot detail.
+	SnapshotCount string                   `json:"snapshot_count"`
 }
 
 type infoJSONDisk struct {
@@ -112,11 +114,6 @@ type infoJSONMount struct {
 	SourcePath  string   `json:"source_path"`
 	GIDMappings []string `json:"gid_mappings"`
 	UIDMappings []string `json:"uid_mappings"`
-}
-
-type infoJSONSnapshot struct {
-	Parent  string `json:"parent"`
-	Comment string `json:"comment"`
 }
 
 // listJSONResponse is the response from multipass list --format json.
