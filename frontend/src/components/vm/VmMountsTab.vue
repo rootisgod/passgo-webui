@@ -1,11 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
 import ActionButton from '../shared/ActionButton.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import { Plus, Trash2 } from 'lucide-vue-next'
+import PathBrowserModal from './PathBrowserModal.vue'
+import { Plus, Trash2, FolderOpen, FolderSearch } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -15,6 +16,28 @@ const showAddForm = ref(false)
 const newSource = ref('')
 const newTarget = ref('')
 const confirmAction = ref(null)
+const vmBrowserOpen = ref(false)
+const hostBrowserOpen = ref(false)
+const hostHomePath = ref('/')
+
+const vm = computed(() => store.selectedVm)
+const isRunning = computed(() => vm.value?.state === 'Running')
+const vmFetcher = (path) => api.listFiles(store.selectedNode, path)
+const hostFetcher = (path) => api.listHostFiles(path)
+const vmCreateFolder = (fullPath) => api.createVmFolder(store.selectedNode, fullPath)
+
+async function openHostBrowser() {
+  // Fetch the real home path on demand so currentPath in the modal matches
+  // what the server actually lists. Without this, an empty initial path made
+  // navigateTo() produce "//Code"-style paths that didn't exist.
+  try {
+    const { path } = await api.getHostHome()
+    if (path) hostHomePath.value = path
+  } catch (e) {
+    // Fall through with last-known value; user can still type a path manually.
+  }
+  hostBrowserOpen.value = true
+}
 
 async function loadMounts() {
   loading.value = true
@@ -59,6 +82,24 @@ async function executeConfirmed() {
   if (fn) await fn()
 }
 
+async function openHostFolder(target) {
+  try {
+    await api.openMountFolder(store.selectedNode, target)
+  } catch (e) {
+    toasts.error(e.message || 'Failed to open folder')
+  }
+}
+
+function onVmBrowseSelect(path) {
+  newTarget.value = path
+  vmBrowserOpen.value = false
+}
+
+function onHostBrowseSelect(path) {
+  newSource.value = path
+  hostBrowserOpen.value = false
+}
+
 onMounted(loadMounts)
 </script>
 
@@ -74,21 +115,43 @@ onMounted(loadMounts)
       <div class="grid grid-cols-2 gap-4 mb-3">
         <div>
           <label class="block text-xs text-[var(--text-secondary)] mb-1">Host path</label>
-          <input
-            v-model="newSource"
-            type="text"
-            placeholder="/home/user/shared"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
-          />
+          <div class="flex gap-2">
+            <input
+              v-model="newSource"
+              type="text"
+              placeholder="/home/user/shared"
+              class="flex-1 bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+            />
+            <button
+              type="button"
+              @click="openHostBrowser"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--bg-hover)] hover:bg-[var(--border)] transition-colors"
+              title="Browse folders on this machine"
+            >
+              <FolderSearch class="w-4 h-4" />
+              Browse Host…
+            </button>
+          </div>
         </div>
         <div>
           <label class="block text-xs text-[var(--text-secondary)] mb-1">VM target path</label>
-          <input
-            v-model="newTarget"
-            type="text"
-            placeholder="/mnt/shared"
-            class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
-          />
+          <div class="flex gap-2">
+            <input
+              v-model="newTarget"
+              type="text"
+              placeholder="/mnt/shared"
+              class="flex-1 bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+            />
+            <button
+              type="button"
+              @click="vmBrowserOpen = true"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-[var(--bg-hover)] hover:bg-[var(--border)] transition-colors"
+              :title="isRunning ? 'Browse the VM\'s filesystem' : 'Start the VM to browse'"
+            >
+              <FolderSearch class="w-4 h-4" />
+              Browse VM…
+            </button>
+          </div>
         </div>
       </div>
       <div class="flex gap-2">
@@ -126,13 +189,22 @@ onMounted(loadMounts)
             <td class="px-4 py-2.5 text-xs text-[var(--text-secondary)]">{{ mount.uid_maps?.join(', ') || '—' }}</td>
             <td class="px-4 py-2.5 text-xs text-[var(--text-secondary)]">{{ mount.gid_maps?.join(', ') || '—' }}</td>
             <td class="px-4 py-2.5 text-right">
-              <button
-                class="p-1 rounded hover:bg-[var(--danger)] transition-colors"
-                title="Remove"
-                @click="confirmRemove(mount.target_path)"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
+              <div class="inline-flex items-center gap-1">
+                <button
+                  class="p-1 rounded hover:bg-[var(--bg-hover)] transition-colors"
+                  title="Open source folder in host file manager"
+                  @click="openHostFolder(mount.target_path)"
+                >
+                  <FolderOpen class="w-4 h-4" />
+                </button>
+                <button
+                  class="p-1 rounded hover:bg-[var(--danger)] transition-colors"
+                  title="Remove"
+                  @click="confirmRemove(mount.target_path)"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -148,6 +220,28 @@ onMounted(loadMounts)
       :message="confirmAction.message"
       @confirm="executeConfirmed"
       @cancel="confirmAction = null"
+    />
+
+    <PathBrowserModal
+      :is-open="vmBrowserOpen"
+      :fetcher="vmFetcher"
+      :create-folder="vmCreateFolder"
+      :directories-only="true"
+      :disabled-reason="isRunning ? '' : 'VM must be running to browse'"
+      initial-path="/home/ubuntu"
+      title="Choose a mount target on the VM"
+      @close="vmBrowserOpen = false"
+      @select="onVmBrowseSelect"
+    />
+
+    <PathBrowserModal
+      :is-open="hostBrowserOpen"
+      :fetcher="hostFetcher"
+      :directories-only="true"
+      :initial-path="hostHomePath"
+      title="Choose a host folder"
+      @close="hostBrowserOpen = false"
+      @select="onHostBrowseSelect"
     />
   </div>
 </template>

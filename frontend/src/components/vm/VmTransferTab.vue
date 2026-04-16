@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import { useToastStore } from '../../stores/toastStore.js'
 import * as api from '../../api/client.js'
+import { useFileList } from '../../composables/useFileList.js'
 import { Folder, File, Upload, Download, ArrowUp, RefreshCw, PowerOff, Play } from 'lucide-vue-next'
 
 const store = useVmStore()
@@ -24,43 +25,24 @@ async function powerOn() {
     starting.value = false
   }
 }
-const currentPath = ref('/home/ubuntu')
-const pathInput = ref('/home/ubuntu')
-const files = ref([])
-const loading = ref(false)
+
+const {
+  currentPath,
+  pathInput,
+  files,
+  loading,
+  error: listError,
+  loadFiles,
+  navigateTo,
+  goUp,
+  goToPath,
+} = useFileList((path) => api.listFiles(store.selectedNode, path), '/home/ubuntu')
+
+watch(listError, (msg) => { if (msg) toasts.error(msg) })
+
 const uploading = ref(false)
 const dragging = ref(false)
 const fileInputRef = ref(null)
-
-async function loadFiles() {
-  loading.value = true
-  try {
-    const data = await api.listFiles(store.selectedNode, currentPath.value)
-    files.value = Array.isArray(data) ? data : []
-    pathInput.value = currentPath.value
-  } catch (e) {
-    files.value = []
-    toasts.error(e.message)
-  } finally {
-    loading.value = false
-  }
-}
-
-function navigateTo(dirName) {
-  currentPath.value = currentPath.value.replace(/\/$/, '') + '/' + dirName
-  loadFiles()
-}
-
-function goUp() {
-  const parent = currentPath.value.replace(/\/[^/]+\/?$/, '') || '/'
-  currentPath.value = parent
-  loadFiles()
-}
-
-function goToPath() {
-  currentPath.value = pathInput.value || '/'
-  loadFiles()
-}
 
 async function handleDownload(fileName) {
   const remotePath = currentPath.value.replace(/\/$/, '') + '/' + fileName

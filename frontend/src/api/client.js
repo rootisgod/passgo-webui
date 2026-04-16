@@ -93,6 +93,7 @@ export const deleteSnapshot = (vmName, snap) => request('DELETE', `/vms/${vmName
 export const listMounts = (vmName) => request('GET', `/vms/${vmName}/mounts`)
 export const addMount = (vmName, source, target) => request('POST', `/vms/${vmName}/mounts`, { source, target })
 export const removeMount = (vmName, target) => request('DELETE', `/vms/${vmName}/mounts`, { target })
+export const openMountFolder = (vmName, target) => request('POST', `/vms/${vmName}/mounts/open`, { target })
 
 // System
 export const listImages = () => request('GET', '/images')
@@ -106,6 +107,9 @@ export const getVersion = () => request('GET', '/version')
 
 // File transfer
 export const listFiles = (vmName, path) => request('GET', `/vms/${vmName}/files/ls?path=${encodeURIComponent(path)}`)
+export const listHostFiles = (path) => request('GET', `/host/files/ls${path ? `?path=${encodeURIComponent(path)}` : ''}`)
+export const getHostHome = () => request('GET', '/host/home')
+export const createVmFolder = (vmName, path) => request('POST', `/vms/${vmName}/files/mkdir`, { path })
 
 export async function uploadFile(vmName, destPath, file) {
   const form = new FormData()
