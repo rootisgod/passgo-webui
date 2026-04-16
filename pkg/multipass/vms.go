@@ -66,6 +66,9 @@ func (c *Client) ListVMs() ([]VMInfo, error) {
 
 // GetVMInfo returns details for a single VM.
 func (c *Client) GetVMInfo(name string) (VMInfo, error) {
+	if err := ValidateVMName(name); err != nil {
+		return VMInfo{}, err
+	}
 	output, err := c.run("info", name, "--format", "json")
 	if err != nil {
 		return VMInfo{}, fmt.Errorf("get VM info: %w", err)
@@ -168,6 +171,9 @@ func (c *Client) LaunchVM(name, release string, cpus, memoryMB, diskGB int, clou
 	if name == "" {
 		name = RandomVMName()
 	}
+	if err := ValidateVMName(name); err != nil {
+		return "", err
+	}
 	if release == "" {
 		release = DefaultUbuntuRelease
 	}
@@ -214,6 +220,14 @@ func (c *Client) LaunchVM(name, release string, cpus, memoryMB, diskGB int, clou
 // CloneVM creates an independent copy of a stopped VM.
 // If destName is empty, multipass auto-generates a name like <source>-clone1.
 func (c *Client) CloneVM(source, destName string) (string, error) {
+	if err := ValidateVMName(source); err != nil {
+		return "", err
+	}
+	if destName != "" {
+		if err := ValidateVMName(destName); err != nil {
+			return "", err
+		}
+	}
 	args := []string{"clone", source}
 	if destName != "" {
 		args = append(args, "--name", destName)
@@ -224,24 +238,36 @@ func (c *Client) CloneVM(source, destName string) (string, error) {
 
 // StartVM starts a stopped VM.
 func (c *Client) StartVM(name string) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("start", name)
 	return err
 }
 
 // StopVM stops a running VM.
 func (c *Client) StopVM(name string) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("stop", name)
 	return err
 }
 
 // SuspendVM suspends a running VM.
 func (c *Client) SuspendVM(name string) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("suspend", name)
 	return err
 }
 
 // DeleteVM deletes a VM. If purge is true, also purges it.
 func (c *Client) DeleteVM(name string, purge bool) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	args := []string{"delete", name}
 	if purge {
 		args = append(args, "--purge")
@@ -252,6 +278,9 @@ func (c *Client) DeleteVM(name string, purge bool) error {
 
 // RecoverVM recovers a deleted VM.
 func (c *Client) RecoverVM(name string) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("recover", name)
 	return err
 }
@@ -264,58 +293,59 @@ func (c *Client) PurgeDeleted() error {
 
 // StartAll starts all stopped VMs.
 func (c *Client) StartAll() error {
-	vms, err := c.ListVMs()
-	if err != nil {
-		return err
-	}
-	var errs []string
-	for _, vm := range vms {
-		if vm.State == "Stopped" {
-			if err := c.StartVM(vm.Name); err != nil {
-				errs = append(errs, fmt.Sprintf("%s: %v", vm.Name, err))
-			}
-		}
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("start-all errors: %s", strings.Join(errs, "; "))
-	}
-	return nil
+	return c.runAllInState("Stopped", "start-all", c.StartVM)
 }
 
 // StopAll stops all running VMs.
 func (c *Client) StopAll() error {
+	return c.runAllInState("Running", "stop-all", c.StopVM)
+}
+
+// runAllInState iterates every VM in the given state and calls op on it,
+// collecting per-VM errors into one aggregate message.
+func (c *Client) runAllInState(state, label string, op func(string) error) error {
 	vms, err := c.ListVMs()
 	if err != nil {
 		return err
 	}
 	var errs []string
 	for _, vm := range vms {
-		if vm.State == "Running" {
-			if err := c.StopVM(vm.Name); err != nil {
-				errs = append(errs, fmt.Sprintf("%s: %v", vm.Name, err))
-			}
+		if vm.State != state {
+			continue
+		}
+		if err := op(vm.Name); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", vm.Name, err))
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("stop-all errors: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("%s errors: %s", label, strings.Join(errs, "; "))
 	}
 	return nil
 }
 
 // ExecInVM runs a command inside a VM and returns stdout.
 func (c *Client) ExecInVM(vmName string, command []string) (string, error) {
+	if err := ValidateVMName(vmName); err != nil {
+		return "", err
+	}
 	args := append([]string{"exec", vmName, "--"}, command...)
 	return c.run(args...)
 }
 
 // ExecInVMWithContext runs a command inside a VM with a context for timeout/cancellation.
 func (c *Client) ExecInVMWithContext(ctx context.Context, vmName string, command []string) (string, error) {
+	if err := ValidateVMName(vmName); err != nil {
+		return "", err
+	}
 	args := append([]string{"exec", vmName, "--"}, command...)
 	return c.runWithContext(ctx, args...)
 }
 
 // ExecInVMStreaming runs a command inside a VM, streaming stdout lines to a callback.
 func (c *Client) ExecInVMStreaming(ctx context.Context, vmName string, command []string, onLine func(string)) (string, error) {
+	if err := ValidateVMName(vmName); err != nil {
+		return "", err
+	}
 	args := append([]string{"exec", vmName, "--"}, command...)
 	return c.runStreamingContext(ctx, onLine, args...)
 }
@@ -331,12 +361,19 @@ type VMConfig struct {
 // Unlike info, these values are available even when the VM is stopped.
 func (c *Client) GetVMConfig(name string) (VMConfig, error) {
 	var cfg VMConfig
+	if err := ValidateVMName(name); err != nil {
+		return cfg, err
+	}
 
 	cpuStr, err := c.run("get", fmt.Sprintf("local.%s.cpus", name))
 	if err != nil {
 		return cfg, fmt.Errorf("get cpus: %w", err)
 	}
-	cfg.CPUs, _ = strconv.Atoi(strings.TrimSpace(cpuStr))
+	cpus, parseErr := strconv.Atoi(strings.TrimSpace(cpuStr))
+	if parseErr != nil {
+		c.logger.Warn("parse cpus", "vm", name, "value", cpuStr, "err", parseErr)
+	}
+	cfg.CPUs = cpus
 
 	memStr, err := c.run("get", fmt.Sprintf("local.%s.memory", name))
 	if err != nil {
@@ -432,24 +469,36 @@ func parseDiskToGB(s string) int64 {
 
 // SetVMCPUs changes the number of CPUs allocated to a VM (requires VM to be stopped).
 func (c *Client) SetVMCPUs(name string, cpus int) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("set", fmt.Sprintf("local.%s.cpus=%d", name, cpus))
 	return err
 }
 
 // SetVMMemory changes the memory allocated to a VM in MB (requires VM to be stopped).
 func (c *Client) SetVMMemory(name string, memoryMB int) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("set", fmt.Sprintf("local.%s.memory=%dM", name, memoryMB))
 	return err
 }
 
 // SetVMDisk changes the disk size of a VM in GB (can only increase, works while running).
 func (c *Client) SetVMDisk(name string, diskGB int) error {
+	if err := ValidateVMName(name); err != nil {
+		return err
+	}
 	_, err := c.run("set", fmt.Sprintf("local.%s.disk=%dG", name, diskGB))
 	return err
 }
 
 // GetRawInfo returns the raw text output of multipass info for a VM.
 func (c *Client) GetRawInfo(name string) (string, error) {
+	if err := ValidateVMName(name); err != nil {
+		return "", err
+	}
 	return c.run("info", name)
 }
 
@@ -467,6 +516,9 @@ type CloudInitStatus struct {
 // capture the output regardless of exit code.
 func (c *Client) GetCloudInitStatus(vmName string) (CloudInitStatus, error) {
 	result := CloudInitStatus{Status: "pending"}
+	if err := ValidateVMName(vmName); err != nil {
+		return result, err
+	}
 
 	// Try JSON format first (cloud-init 22.1+, available on Ubuntu 22.04+)
 	// Wrap in sh to capture stdout even on non-zero exit (exit 2 = recoverable error)

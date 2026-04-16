@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -40,12 +41,13 @@ type EventLog struct {
 	count      int
 	cache      []Event // circular buffer, newest at end
 	dispatcher WebhookDispatcher
+	logger     *slog.Logger
 }
 
 // NewEventLog opens or creates the events file, loads recent events into cache,
 // and rotates if the file exceeds maxEvents lines.
-func NewEventLog(path string) (*EventLog, error) {
-	el := &EventLog{path: path, cache: make([]Event, 0, eventCacheSize)}
+func NewEventLog(path string, logger *slog.Logger) (*EventLog, error) {
+	el := &EventLog{path: path, cache: make([]Event, 0, eventCacheSize), logger: logger}
 
 	// Read existing events to build cache and count
 	if data, err := os.ReadFile(path); err == nil {
@@ -87,6 +89,40 @@ func NewEventLog(path string) (*EventLog, error) {
 	return el, nil
 }
 
+// rotateLocked trims the events file to rotateKeep newest lines.
+// Caller must hold el.mu. Closes and reopens the file fd.
+func (el *EventLog) rotateLocked() error {
+	if el.file != nil {
+		el.file.Close()
+		el.file = nil
+	}
+	data, err := os.ReadFile(el.path)
+	if err != nil {
+		return fmt.Errorf("read events for rotation: %w", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	}
+	if len(lines) > rotateKeep {
+		lines = lines[len(lines)-rotateKeep:]
+	}
+	content := strings.Join(lines, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	if err := os.WriteFile(el.path, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write rotated events: %w", err)
+	}
+	el.count = len(lines)
+	f, err := os.OpenFile(el.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("reopen events after rotation: %w", err)
+	}
+	el.file = f
+	return nil
+}
+
 // SetDispatcher sets the webhook dispatcher called after each event emission.
 func (el *EventLog) SetDispatcher(d WebhookDispatcher) {
 	el.mu.Lock()
@@ -100,8 +136,13 @@ func (el *EventLog) Emit(e Event) {
 	e.Timestamp = now.Format(time.RFC3339)
 
 	b := make([]byte, 4)
-	rand.Read(b)
-	e.ID = fmt.Sprintf("%d-%s", now.Unix(), hex.EncodeToString(b))
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand effectively never fails; fall back to time-only ID so we
+		// still record the event rather than dropping it silently.
+		e.ID = fmt.Sprintf("%d", now.UnixNano())
+	} else {
+		e.ID = fmt.Sprintf("%d-%s", now.Unix(), hex.EncodeToString(b))
+	}
 
 	data, err := json.Marshal(e)
 	if err != nil {
@@ -110,7 +151,19 @@ func (el *EventLog) Emit(e Event) {
 
 	el.mu.Lock()
 
-	el.file.Write(append(data, '\n'))
+	if el.file == nil {
+		el.mu.Unlock()
+		return
+	}
+	if _, err := el.file.Write(append(data, '\n')); err != nil {
+		// Write failed — don't increment count or cache, or we'll lie about
+		// what's on disk and mess up rotation accounting.
+		if el.logger != nil {
+			el.logger.Error("event log write failed", "err", err, "path", el.path)
+		}
+		el.mu.Unlock()
+		return
+	}
 	el.count++
 
 	// Update cache
@@ -118,6 +171,15 @@ func (el *EventLog) Emit(e Event) {
 		el.cache = el.cache[1:]
 	}
 	el.cache = append(el.cache, e)
+
+	// Rotate if we've crossed the threshold. Doing this inline keeps the
+	// on-disk file bounded during a long-running process — without this,
+	// the startup-only rotation meant events.jsonl grew forever.
+	if el.count > maxEvents {
+		if err := el.rotateLocked(); err != nil && el.logger != nil {
+			el.logger.Error("event log rotation failed", "err", err, "path", el.path)
+		}
+	}
 
 	d := el.dispatcher
 	el.mu.Unlock()

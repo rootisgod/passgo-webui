@@ -10,6 +10,9 @@ import (
 
 // TransferFromVM streams a file from the VM to the provided writer.
 func (c *Client) TransferFromVM(vmName, remotePath string, w io.Writer) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
 	src := vmName + ":" + remotePath
 	cmd := exec.Command("multipass", "transfer", src, "-")
 	cmd.Stdout = w
@@ -26,6 +29,9 @@ func (c *Client) TransferFromVM(vmName, remotePath string, w io.Writer) error {
 
 // TransferToVM streams data from the reader to a file in the VM.
 func (c *Client) TransferToVM(vmName, remotePath string, r io.Reader) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
 	dst := vmName + ":" + remotePath
 	cmd := exec.Command("multipass", "transfer", "-", dst)
 	cmd.Stdin = r

@@ -7,6 +7,14 @@ class ApiError extends Error {
   }
 }
 
+// Fired when any API call sees 401. App.vue listens and routes back to login,
+// so no individual caller needs to handle auth-expiry. Skip firing for the
+// login endpoint itself — that's an expected path for bad credentials.
+function fireUnauthorized(path) {
+  if (path === '/auth/login') return
+  window.dispatchEvent(new CustomEvent('passgo:unauthorized'))
+}
+
 async function request(method, path, body) {
   const opts = {
     method,
@@ -22,6 +30,9 @@ async function request(method, path, body) {
     data = JSON.parse(text)
   } catch {
     data = { message: text }
+  }
+  if (res.status === 401) {
+    fireUnauthorized(path)
   }
   if (!res.ok) {
     throw new ApiError(res.status, data.error || text)
@@ -55,6 +66,7 @@ export const updateVMDefaults = (defaults) => request('PUT', '/config/vm-default
 // Config export/import
 export async function exportConfig() {
   const res = await fetch(API_BASE + '/config/export')
+  if (res.status === 401) fireUnauthorized('/config/export')
   if (!res.ok) {
     const text = await res.text()
     let msg
@@ -100,6 +112,7 @@ export async function uploadFile(vmName, destPath, file) {
   form.append('file', file)
   form.append('path', destPath)
   const res = await fetch(`${API_BASE}/vms/${vmName}/files`, { method: 'POST', body: form })
+  if (res.status === 401) fireUnauthorized(`/vms/${vmName}/files`)
   if (!res.ok) {
     const text = await res.text()
     let msg
@@ -110,6 +123,7 @@ export async function uploadFile(vmName, destPath, file) {
 
 export async function downloadFile(vmName, remotePath) {
   const res = await fetch(`${API_BASE}/vms/${vmName}/files?path=${encodeURIComponent(remotePath)}`)
+  if (res.status === 401) fireUnauthorized(`/vms/${vmName}/files`)
   if (!res.ok) {
     const text = await res.text()
     let msg

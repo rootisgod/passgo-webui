@@ -9,7 +9,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -270,10 +269,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		return toJSON(nets), nil
 
 	case "list_groups":
-		s.groupMu.Lock()
+		s.cfgMu.Lock()
 		groups := s.cfg.Groups
 		vmGroups := s.cfg.VMGroups
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		return toJSON(map[string]any{"groups": groups, "vm_groups": vmGroups}), nil
 
 	case "create_group":
@@ -283,13 +282,13 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		s.groupMu.Lock()
-		defer s.groupMu.Unlock()
+		s.cfgMu.Lock()
+		defer s.cfgMu.Unlock()
 		if slices.Contains(s.cfg.Groups, args.Name) {
 			return toolError(fmt.Errorf("group '%s' already exists", args.Name)), nil
 		}
 		s.cfg.Groups = append(s.cfg.Groups, args.Name)
-		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+		if err := s.cfg.Save(s.configPath); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"created","group":"%s"}`, args.Name), nil
@@ -302,8 +301,8 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		s.groupMu.Lock()
-		defer s.groupMu.Unlock()
+		s.cfgMu.Lock()
+		defer s.cfgMu.Unlock()
 		idx := slices.Index(s.cfg.Groups, args.OldName)
 		if idx < 0 {
 			return toolError(fmt.Errorf("group '%s' not found", args.OldName)), nil
@@ -317,7 +316,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 				s.cfg.VMGroups[vm] = args.NewName
 			}
 		}
-		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+		if err := s.cfg.Save(s.configPath); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"renamed","old_name":"%s","new_name":"%s"}`, args.OldName, args.NewName), nil
@@ -329,8 +328,8 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		s.groupMu.Lock()
-		defer s.groupMu.Unlock()
+		s.cfgMu.Lock()
+		defer s.cfgMu.Unlock()
 		idx := slices.Index(s.cfg.Groups, args.Name)
 		if idx < 0 {
 			return toolError(fmt.Errorf("group '%s' not found", args.Name)), nil
@@ -341,7 +340,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 				delete(s.cfg.VMGroups, vm)
 			}
 		}
-		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+		if err := s.cfg.Save(s.configPath); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"deleted","group":"%s"}`, args.Name), nil
@@ -354,8 +353,8 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		s.groupMu.Lock()
-		defer s.groupMu.Unlock()
+		s.cfgMu.Lock()
+		defer s.cfgMu.Unlock()
 		if args.Group != "" && !slices.Contains(s.cfg.Groups, args.Group) {
 			return toolError(fmt.Errorf("group '%s' not found", args.Group)), nil
 		}
@@ -364,7 +363,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		} else {
 			s.cfg.VMGroups[args.VM] = args.Group
 		}
-		if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+		if err := s.cfg.Save(s.configPath); err != nil {
 			return toolError(err), nil
 		}
 		action := "assigned"

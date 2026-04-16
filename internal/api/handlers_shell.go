@@ -7,7 +7,10 @@ import (
 )
 
 func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	sid := r.PathValue("sessionId")
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -86,7 +89,10 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateShellSession(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	_, id, err := s.ptySessions.create(name)
 	if err != nil {
 		s.logger.Error("failed to create shell session", "err", err, "vm", name)
@@ -97,7 +103,10 @@ func (s *Server) handleCreateShellSession(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleListShellSessions(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	sessions := s.ptySessions.listSessions(name)
 	if sessions == nil {
 		sessions = []SessionInfo{}
@@ -106,7 +115,10 @@ func (s *Server) handleListShellSessions(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleDeleteShellSession(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	sid := r.PathValue("sessionId")
 	s.ptySessions.killSession(sessionKey(name, sid))
 	writeMessage(w, "session deleted")

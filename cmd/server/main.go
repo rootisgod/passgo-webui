@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -11,6 +13,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/rootisgod/passgo-web/internal/api"
 	"github.com/rootisgod/passgo-web/internal/config"
@@ -104,7 +107,7 @@ func main() {
 	}
 
 	// Create and start server
-	srv := api.NewServer(mp, cfg, logger, Version, BuildTime, GitCommit, builtinTemplatesFS)
+	srv := api.NewServer(mp, cfg, configPath, logger, Version, BuildTime, GitCommit, builtinTemplatesFS)
 	handler := srv.Handler(staticFS)
 
 	listen := cfg.Listen
@@ -116,17 +119,31 @@ func main() {
 	fmt.Printf("Config: %s\n", configPath)
 	fmt.Printf("Listening on http://0.0.0.0%s\n", listen)
 
-	// Graceful shutdown: clean up PTY sessions on SIGINT/SIGTERM
+	// Explicit server with timeouts. No WriteTimeout: shell WebSockets and
+	// LLM chat SSE are long-lived writes; per-request timeouts handle those.
+	httpSrv := &http.Server{
+		Addr:              listen,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// Graceful shutdown: drain in-flight requests before killing PTYs, scheduler, eventlog.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
 		logger.Info("shutting down...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("http shutdown error", "err", err)
+		}
 		srv.Shutdown()
-		os.Exit(0)
 	}()
 
-	if err := http.ListenAndServe(listen, handler); err != nil {
+	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server failed", "err", err)
 		os.Exit(1)
 	}

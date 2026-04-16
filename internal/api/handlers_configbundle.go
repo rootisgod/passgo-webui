@@ -47,7 +47,7 @@ type llmConfigExport struct {
 }
 
 func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	export := &configExport{
 		Groups:     s.cfg.Groups,
 		VMGroups:   s.cfg.VMGroups,
@@ -82,7 +82,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	cloudInitDir := s.cfg.CloudInitDir
 	playbooksDir := s.cfg.PlaybooksDir
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	// Read user cloud-init templates
 	templates := make(map[string]string)
@@ -153,7 +153,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	if bundle.Config != nil {
 		if bundle.Config.Groups != nil {
 			s.cfg.Groups = bundle.Config.Groups
@@ -202,12 +202,12 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 	cloudInitDir := s.cfg.CloudInitDir
 	playbooksDir := s.cfg.PlaybooksDir
 
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
-		s.groupMu.Unlock()
+	if err := s.cfg.Save(s.configPath); err != nil {
+		s.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "save config: "+err.Error())
 		return
 	}
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	templatesWritten := 0
 	for name, content := range bundle.CloudInitTemplates {

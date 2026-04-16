@@ -15,13 +15,43 @@ type sessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]time.Time // token → expiry
 	ttl      time.Duration
+	stopCh   chan struct{}
 }
 
 func newSessionStore(ttl time.Duration) *sessionStore {
-	return &sessionStore{
+	s := &sessionStore{
 		sessions: make(map[string]time.Time),
 		ttl:      ttl,
+		stopCh:   make(chan struct{}),
 	}
+	// Periodic reaper: without this, tokens that are never looked up again
+	// (e.g. user closed the tab) stay in the map for the process lifetime.
+	go s.reaper()
+	return s
+}
+
+func (s *sessionStore) reaper() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			s.mu.Lock()
+			for token, expiry := range s.sessions {
+				if now.After(expiry) {
+					delete(s.sessions, token)
+				}
+			}
+			s.mu.Unlock()
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+func (s *sessionStore) Shutdown() {
+	close(s.stopCh)
 }
 
 func (s *sessionStore) Create() (string, error) {

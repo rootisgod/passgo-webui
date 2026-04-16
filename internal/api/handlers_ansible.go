@@ -22,14 +22,14 @@ func (s *Server) generateInventoryYAML(filterVMs []string, user, sshKeyPath stri
 		return "", fmt.Errorf("failed to list VMs: %w", err)
 	}
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	groups := make([]string, len(s.cfg.Groups))
 	copy(groups, s.cfg.Groups)
 	vmGroups := make(map[string]string, len(s.cfg.VMGroups))
 	for k, v := range s.cfg.VMGroups {
 		vmGroups[k] = v
 	}
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	// Build filter set
 	filterSet := make(map[string]bool, len(filterVMs))

@@ -148,8 +148,7 @@ func (s *Server) handleUpdateChatConfig(w http.ResponseWriter, r *http.Request) 
 		s.cfg.LLM.ReadOnly = *req.ReadOnly
 	}
 
-	configPath := config.DefaultConfigPath()
-	if err := s.cfg.Save(configPath); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		s.logger.Error("failed to save config", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return

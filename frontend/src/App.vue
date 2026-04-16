@@ -1,6 +1,7 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useVmStore } from './stores/vmStore.js'
+import { useToastStore } from './stores/toastStore.js'
 import { usePolling } from './composables/usePolling.js'
 import { getVersion } from './api/client.js'
 
@@ -22,9 +23,19 @@ import Toast from './components/shared/Toast.vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 
 const store = useVmStore()
+const toast = useToastStore()
 const checkingAuth = ref(true)
 
+// Any API 401 bubbles up here so callers don't each re-implement the logout flow.
+function handleUnauthorized() {
+  if (store.authenticated) {
+    toast.error('Session expired — please log in again')
+  }
+  store.authenticated = false
+}
+
 onMounted(async () => {
+  window.addEventListener('passgo:unauthorized', handleUnauthorized)
   try {
     const ver = await getVersion()
     store.hostname = ver.hostname || 'localhost'
@@ -39,6 +50,10 @@ onMounted(async () => {
   } finally {
     checkingAuth.value = false
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('passgo:unauthorized', handleUnauthorized)
 })
 
 usePolling(() => {

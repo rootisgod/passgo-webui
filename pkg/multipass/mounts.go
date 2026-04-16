@@ -13,12 +13,18 @@ func (c *Client) ListMounts(vmName string) ([]MountInfo, error) {
 
 // AddMount mounts a host path into a VM.
 func (c *Client) AddMount(vmName, source, target string) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
 	_, err := c.run("mount", source, fmt.Sprintf("%s:%s", vmName, target))
 	return err
 }
 
 // RemoveMount unmounts a path from a VM.
 func (c *Client) RemoveMount(vmName, target string) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
 	_, err := c.run("umount", fmt.Sprintf("%s:%s", vmName, target))
 	return err
 }

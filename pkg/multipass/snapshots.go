@@ -19,6 +19,9 @@ type snapshotListJSONEntry struct {
 
 // ListSnapshots returns snapshots for a specific VM using multipass list --snapshots.
 func (c *Client) ListSnapshots(vmName string) ([]SnapshotInfo, error) {
+	if err := ValidateVMName(vmName); err != nil {
+		return nil, err
+	}
 	output, err := c.run("list", "--snapshots", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots: %w", err)
@@ -49,6 +52,12 @@ func (c *Client) ListSnapshots(vmName string) ([]SnapshotInfo, error) {
 
 // CreateSnapshot creates a named snapshot of a VM.
 func (c *Client) CreateSnapshot(vmName, snapshotName, comment string) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
+	if err := ValidateVMName(snapshotName); err != nil {
+		return fmt.Errorf("invalid snapshot name: %w", err)
+	}
 	args := []string{"snapshot", "--name", snapshotName}
 	if comment != "" {
 		args = append(args, "--comment", comment)
@@ -60,6 +69,12 @@ func (c *Client) CreateSnapshot(vmName, snapshotName, comment string) error {
 
 // RestoreSnapshot restores a VM to a snapshot (destructive).
 func (c *Client) RestoreSnapshot(vmName, snapshotName string) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
+	if err := ValidateVMName(snapshotName); err != nil {
+		return fmt.Errorf("invalid snapshot name: %w", err)
+	}
 	snapshotID := vmName + "." + snapshotName
 	_, err := c.run("restore", "--destructive", snapshotID)
 	return err
@@ -67,6 +82,12 @@ func (c *Client) RestoreSnapshot(vmName, snapshotName string) error {
 
 // DeleteSnapshot deletes a snapshot.
 func (c *Client) DeleteSnapshot(vmName, snapshotName string) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
+	if err := ValidateVMName(snapshotName); err != nil {
+		return fmt.Errorf("invalid snapshot name: %w", err)
+	}
 	snapshotID := vmName + "." + snapshotName
 	_, err := c.run("delete", "--purge", snapshotID)
 	return err

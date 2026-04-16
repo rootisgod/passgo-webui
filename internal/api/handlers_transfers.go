@@ -9,7 +9,10 @@ import (
 )
 
 func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	remotePath := r.URL.Query().Get("path")
 	if remotePath == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
@@ -32,7 +35,10 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 
 	// 32MB limit
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -75,7 +81,10 @@ type fileEntry struct {
 }
 
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	dirPath := r.URL.Query().Get("path")
 	if dirPath == "" {
 		dirPath = "/home/ubuntu"

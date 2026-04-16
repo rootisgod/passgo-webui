@@ -22,9 +22,9 @@ func (s *Server) handleScheduleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	schedules := s.cfg.GetSchedules()
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 	writeJSON(w, http.StatusOK, schedules)
 }
 
@@ -35,10 +35,10 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.AddSchedule(sched)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "already exists") {
 			status = http.StatusConflict
@@ -46,8 +46,8 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	saveErr := s.cfg.Save(config.DefaultConfigPath())
-	s.groupMu.Unlock()
+	saveErr := s.cfg.Save(s.configPath)
+	s.cfgMu.Unlock()
 
 	if saveErr != nil {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())
@@ -67,10 +67,10 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	sched.ID = id
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.UpdateSchedule(sched)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
 			status = http.StatusNotFound
@@ -78,8 +78,8 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err.Error())
 		return
 	}
-	saveErr := s.cfg.Save(config.DefaultConfigPath())
-	s.groupMu.Unlock()
+	saveErr := s.cfg.Save(s.configPath)
+	s.cfgMu.Unlock()
 
 	if saveErr != nil {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())
@@ -92,15 +92,15 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.DeleteSchedule(id)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	saveErr := s.cfg.Save(config.DefaultConfigPath())
-	s.groupMu.Unlock()
+	saveErr := s.cfg.Save(s.configPath)
+	s.cfgMu.Unlock()
 
 	if saveErr != nil {
 		writeError(w, http.StatusInternalServerError, "save config: "+saveErr.Error())

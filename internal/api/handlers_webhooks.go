@@ -35,9 +35,9 @@ func toWebhookResponse(wh config.Webhook) webhookResponse {
 }
 
 func (srv *Server) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	webhooks := srv.cfg.GetWebhooks()
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	resp := make([]webhookResponse, len(webhooks))
 	for i, wh := range webhooks {
@@ -62,18 +62,18 @@ func (srv *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	req.ID = "wh_" + hex.EncodeToString(idBytes)
 	req.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	if err := srv.cfg.AddWebhook(req); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := srv.cfg.Save(config.DefaultConfigPath()); err != nil {
-		srv.groupMu.Unlock()
+	if err := srv.cfg.Save(srv.configPath); err != nil {
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	srv.eventLog.EmitHTTPEvent(r, "config", "create_webhook", req.Name, "success", "")
 	writeJSON(w, http.StatusCreated, toWebhookResponse(req))
@@ -89,10 +89,10 @@ func (srv *Server) handleUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	req.ID = id
 
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	existing, _ := srv.cfg.GetWebhook(id)
 	if existing == nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, "webhook not found")
 		return
 	}
@@ -106,16 +106,16 @@ func (srv *Server) handleUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := srv.cfg.UpdateWebhook(req); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := srv.cfg.Save(config.DefaultConfigPath()); err != nil {
-		srv.groupMu.Unlock()
+	if err := srv.cfg.Save(srv.configPath); err != nil {
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	srv.eventLog.EmitHTTPEvent(r, "config", "update_webhook", req.Name, "success", "")
 	writeJSON(w, http.StatusOK, toWebhookResponse(req))
@@ -124,18 +124,18 @@ func (srv *Server) handleUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 func (srv *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	if err := srv.cfg.DeleteWebhook(id); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if err := srv.cfg.Save(config.DefaultConfigPath()); err != nil {
-		srv.groupMu.Unlock()
+	if err := srv.cfg.Save(srv.configPath); err != nil {
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	srv.eventLog.EmitHTTPEvent(r, "config", "delete_webhook", id, "success", "")
 	writeMessage(w, "webhook deleted")
@@ -144,15 +144,15 @@ func (srv *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 func (srv *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	wh, _ := srv.cfg.GetWebhook(id)
 	if wh == nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, "webhook not found")
 		return
 	}
 	whCopy := *wh
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	testEvent := Event{
 		ID:        "test",

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -22,7 +21,10 @@ func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	vm, err := s.mp.GetVMInfo(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
@@ -53,9 +55,9 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	// Resolve profile if specified: defaults → profile → request overrides
 	var profileGroup, profilePlaybook string
 	if req.Profile != "" {
-		s.groupMu.Lock()
+		s.cfgMu.Lock()
 		p, _ := s.cfg.GetProfile(req.Profile)
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		if p == nil {
 			writeError(w, http.StatusBadRequest, "profile not found: "+req.Profile)
 			return
@@ -90,6 +92,10 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the name now so we can return it immediately
 	name := multipass.ResolveLaunchName(req.Name)
+	if err := multipass.ValidateVMName(name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Resolve built-in cloud-init templates to a temp file
 	cloudInitFile := req.CloudInit
@@ -111,6 +117,12 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	// Track and launch asynchronously
 	s.launches.start(name)
 	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.launches.fail(name, fmt.Sprintf("panic: %v", rec))
+				s.logger.Error("VM launch goroutine panicked", "name", name, "panic", rec)
+			}
+		}()
 		_, err := s.mp.LaunchVM(name, req.Release, req.CPUs, req.MemoryMB, req.DiskGB, cloudInitFile, req.Network)
 		if err != nil {
 			s.logger.Error("VM launch failed", "name", name, "err", err)
@@ -122,10 +134,10 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 
 			// Post-launch: assign to group if profile specified one
 			if profileGroup != "" {
-				s.groupMu.Lock()
+				s.cfgMu.Lock()
 				s.cfg.VMGroups[name] = profileGroup
-				s.cfg.Save(config.DefaultConfigPath())
-				s.groupMu.Unlock()
+				s.cfg.Save(s.configPath)
+				s.cfgMu.Unlock()
 				s.logger.Info("auto-assigned VM to group", "vm", name, "group", profileGroup)
 			}
 
@@ -150,18 +162,42 @@ type cloneVMRequest struct {
 }
 
 func (s *Server) handleCloneVM(w http.ResponseWriter, r *http.Request) {
-	source := r.PathValue("name")
+	source, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 
 	var req cloneVMRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
 
 	destName := req.Name
 	if destName == "" {
 		destName = s.nextCloneName(source)
 	}
+	if err := multipass.ValidateVMName(destName); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Snapshot != "" {
+		if err := multipass.ValidateVMName(req.Snapshot); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid snapshot name: "+err.Error())
+			return
+		}
+	}
 
 	s.launches.start(destName)
 	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.launches.fail(destName, fmt.Sprintf("panic: %v", rec))
+				s.logger.Error("VM clone goroutine panicked", "dest", destName, "panic", rec)
+			}
+		}()
 		_, err := s.mp.CloneVM(source, destName)
 		if err != nil {
 			s.logger.Error("VM clone failed", "source", source, "dest", destName, "err", err)
@@ -214,7 +250,10 @@ func (s *Server) handleDismissLaunch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	if err := s.mp.StartVM(name); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "start", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -225,7 +264,10 @@ func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	if err := s.mp.StopVM(name); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "stop", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -237,7 +279,10 @@ func (s *Server) handleStopVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSuspendVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	if err := s.mp.SuspendVM(name); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "suspend", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -252,9 +297,17 @@ type deleteVMRequest struct {
 }
 
 func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req deleteVMRequest
-	json.NewDecoder(r.Body).Decode(&req) // body is optional
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
 	if err := s.mp.DeleteVM(name, req.Purge); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "delete", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -270,7 +323,10 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRecoverVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	if err := s.mp.RecoverVM(name); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "recover", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -319,7 +375,10 @@ type execResponse struct {
 }
 
 func (s *Server) handleExecInVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req execRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Command) == 0 {
 		writeError(w, http.StatusBadRequest, "command is required")
@@ -334,7 +393,10 @@ func (s *Server) handleExecInVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetVMConfig(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	cfg, err := s.mp.GetVMConfig(name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -350,7 +412,10 @@ type resizeVMRequest struct {
 }
 
 func (s *Server) handleResizeVM(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req resizeVMRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -430,7 +495,10 @@ func (s *Server) handleResizeVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCloudInitStatus(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	status, err := s.mp.GetCloudInitStatus(name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
