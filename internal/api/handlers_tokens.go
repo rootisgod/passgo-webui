@@ -28,9 +28,9 @@ type tokenCreateResponse struct {
 }
 
 func (srv *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	tokens := srv.cfg.GetAPITokens()
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	resp := make([]tokenResponse, len(tokens))
 	for i, t := range tokens {
@@ -62,10 +62,10 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check for duplicate names
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	for _, t := range srv.cfg.GetAPITokens() {
 		if t.Name == req.Name {
-			srv.groupMu.Unlock()
+			srv.cfgMu.Unlock()
 			writeError(w, http.StatusConflict, fmt.Sprintf("token with name %q already exists", req.Name))
 			return
 		}
@@ -74,7 +74,7 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	// Generate token ID
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to generate token ID")
 		return
 	}
@@ -83,7 +83,7 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	// Generate raw token: pgo_ + 32 random hex bytes
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
@@ -107,12 +107,12 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	srv.cfg.AddAPIToken(token)
-	if err := srv.cfg.Save(config.DefaultConfigPath()); err != nil {
-		srv.groupMu.Unlock()
+	if err := srv.cfg.Save(srv.configPath); err != nil {
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	srv.eventLog.EmitHTTPEvent(r, "config", "create_token", req.Name, "success", "")
 	writeJSON(w, http.StatusCreated, tokenCreateResponse{
@@ -127,18 +127,18 @@ func (srv *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 func (srv *Server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	srv.groupMu.Lock()
+	srv.cfgMu.Lock()
 	if err := srv.cfg.DeleteAPIToken(id); err != nil {
-		srv.groupMu.Unlock()
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if err := srv.cfg.Save(config.DefaultConfigPath()); err != nil {
-		srv.groupMu.Unlock()
+	if err := srv.cfg.Save(srv.configPath); err != nil {
+		srv.cfgMu.Unlock()
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
-	srv.groupMu.Unlock()
+	srv.cfgMu.Unlock()
 
 	srv.eventLog.EmitHTTPEvent(r, "config", "delete_token", id, "success", "")
 	writeMessage(w, "token deleted")

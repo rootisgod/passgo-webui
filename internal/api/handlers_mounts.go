@@ -6,7 +6,10 @@ import (
 )
 
 func (s *Server) handleListMounts(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	mounts, err := s.mp.ListMounts(name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -21,7 +24,10 @@ type addMountRequest struct {
 }
 
 func (s *Server) handleAddMount(w http.ResponseWriter, r *http.Request) {
-	vmName := r.PathValue("name")
+	vmName, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req addMountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Source == "" || req.Target == "" {
 		writeError(w, http.StatusBadRequest, "source and target are required")
@@ -39,7 +45,10 @@ type removeMountRequest struct {
 }
 
 func (s *Server) handleRemoveMount(w http.ResponseWriter, r *http.Request) {
-	vmName := r.PathValue("name")
+	vmName, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req removeMountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Target == "" {
 		writeError(w, http.StatusBadRequest, "target is required")

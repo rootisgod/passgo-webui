@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"log/slog"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rootisgod/passgo-web/internal/config"
+	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
 // maxRequestBodySize is the global limit for JSON request bodies (1 MB).
@@ -66,17 +68,20 @@ func authMiddleware(sessions *sessionStore, cfg *config.Config, next http.Handle
 		}
 
 		// Check Authorization header for API clients
-		if auth := r.Header.Get("Authorization"); len(auth) > 7 && auth[:7] == "Bearer " {
+		if auth := r.Header.Get("Authorization"); len(auth) > 7 && strings.EqualFold(auth[:7], "Bearer ") {
 			bearer := auth[7:]
 			// Check session store
 			if sessions.Valid(bearer) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Check persistent API tokens
+			// Check persistent API tokens. Constant-time compare is pedantic
+			// here (SHA-256 preimage resistance makes timing side-channel
+			// infeasible) but it closes the checkbox cleanly.
 			hash := sha256Hex(bearer)
+			hashBytes := []byte(hash)
 			for _, t := range cfg.GetAPITokens() {
-				if t.Hash == hash {
+				if subtle.ConstantTimeCompare([]byte(t.Hash), hashBytes) == 1 {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -93,7 +98,7 @@ func sha256Hex(s string) string {
 }
 
 func isAPIPath(path string) bool {
-	return len(path) >= 8 && path[:8] == "/api/v1/"
+	return strings.HasPrefix(path, "/api/v1/")
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -164,14 +169,47 @@ type loginRateLimiter struct {
 	attempts map[string][]time.Time
 	max      int           // max attempts in window
 	window   time.Duration // sliding window duration
+	stopCh   chan struct{}
 }
 
 func newLoginRateLimiter(max int, window time.Duration) *loginRateLimiter {
-	return &loginRateLimiter{
+	rl := &loginRateLimiter{
 		attempts: make(map[string][]time.Time),
 		max:      max,
 		window:   window,
+		stopCh:   make(chan struct{}),
 	}
+	go rl.reaper()
+	return rl
+}
+
+func (rl *loginRateLimiter) reaper() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.sweep()
+		case <-rl.stopCh:
+			return
+		}
+	}
+}
+
+// sweep deletes entries whose most-recent attempt is older than the window.
+func (rl *loginRateLimiter) sweep() {
+	cutoff := time.Now().Add(-rl.window)
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	for ip, times := range rl.attempts {
+		if len(times) == 0 || times[len(times)-1].Before(cutoff) {
+			delete(rl.attempts, ip)
+		}
+	}
+}
+
+func (rl *loginRateLimiter) Shutdown() {
+	close(rl.stopCh)
 }
 
 // allow checks if the IP is within the rate limit. Returns false if blocked.
@@ -208,15 +246,47 @@ type apiRateLimiter struct {
 	max        int
 	window     time.Duration
 	trustProxy bool
+	stopCh     chan struct{}
 }
 
 func newAPIRateLimiter(max int, window time.Duration, trustProxy bool) *apiRateLimiter {
-	return &apiRateLimiter{
+	rl := &apiRateLimiter{
 		requests:   make(map[string][]time.Time),
 		max:        max,
 		window:     window,
 		trustProxy: trustProxy,
+		stopCh:     make(chan struct{}),
 	}
+	go rl.reaper()
+	return rl
+}
+
+func (rl *apiRateLimiter) reaper() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.sweep()
+		case <-rl.stopCh:
+			return
+		}
+	}
+}
+
+func (rl *apiRateLimiter) sweep() {
+	cutoff := time.Now().Add(-rl.window)
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	for ip, times := range rl.requests {
+		if len(times) == 0 || times[len(times)-1].Before(cutoff) {
+			delete(rl.requests, ip)
+		}
+	}
+}
+
+func (rl *apiRateLimiter) Shutdown() {
+	close(rl.stopCh)
 }
 
 func (rl *apiRateLimiter) allow(ip string) bool {
@@ -271,4 +341,26 @@ func isTLS(r *http.Request, trustProxy bool) bool {
 		return true
 	}
 	return false
+}
+
+// validVMName reads a VM name path parameter, writes a 400 response
+// and returns "", false on failure. Rejects the flag-injection class
+// (e.g. "--all") before the name ever reaches exec.Command argv.
+func validVMName(w http.ResponseWriter, r *http.Request, key string) (string, bool) {
+	name := r.PathValue(key)
+	if err := multipass.ValidateVMName(name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return name, true
+}
+
+// validSnapshotName reads a snapshot path parameter with the same rules as VM names.
+func validSnapshotName(w http.ResponseWriter, r *http.Request, key string) (string, bool) {
+	name := r.PathValue(key)
+	if err := multipass.ValidateVMName(name); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid snapshot name: "+err.Error())
+		return "", false
+	}
+	return name, true
 }

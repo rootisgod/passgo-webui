@@ -123,7 +123,7 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 	copy(targetVMs, req.VMs)
 
 	if len(req.Groups) > 0 {
-		s.groupMu.Lock()
+		s.cfgMu.Lock()
 		for vm, group := range s.cfg.VMGroups {
 			for _, g := range req.Groups {
 				if group == g {
@@ -140,7 +140,7 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 	}
 
 	// Generate inventory

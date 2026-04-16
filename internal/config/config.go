@@ -436,7 +436,40 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	// Atomic write: write to tmp in the same directory, fsync, rename.
+	// Same directory matters — os.Rename is only atomic within a filesystem,
+	// and putting the tmp file elsewhere can fail across mount boundaries.
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create tmp config: %w", err)
+	}
+	tmpName := tmp.Name()
+	// On any failure below, make sure the tmp file is removed.
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("write tmp config: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("chmod tmp config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("fsync tmp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close tmp config: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
+		return fmt.Errorf("rename tmp config: %w", err)
+	}
+	return nil
 }
 
 func CreateDefault(path string) (*Config, error) {

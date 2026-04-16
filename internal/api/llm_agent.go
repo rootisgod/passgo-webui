@@ -528,10 +528,10 @@ RULES:
 	}
 
 	// Include group information
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	groups := s.cfg.Groups
 	vmGroups := s.cfg.VMGroups
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	if len(groups) > 0 {
 		sb.WriteString(fmt.Sprintf("\nGROUPS (%d):\n", len(groups)))

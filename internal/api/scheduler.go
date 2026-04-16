@@ -72,14 +72,14 @@ func (sc *scheduler) tick(now time.Time) {
 	weekday := int(now.Weekday())
 
 	// Copy schedules and vmGroups under lock
-	sc.server.groupMu.Lock()
+	sc.server.cfgMu.Lock()
 	schedules := make([]config.Schedule, len(sc.server.cfg.Schedules))
 	copy(schedules, sc.server.cfg.Schedules)
 	vmGroups := make(map[string]string, len(sc.server.cfg.VMGroups))
 	for k, v := range sc.server.cfg.VMGroups {
 		vmGroups[k] = v
 	}
-	sc.server.groupMu.Unlock()
+	sc.server.cfgMu.Unlock()
 
 	for _, sched := range schedules {
 		if !sched.Enabled {
@@ -137,10 +137,10 @@ func (sc *scheduler) markFired(id string, now time.Time) {
 }
 
 func (sc *scheduler) runNow(id string) error {
-	sc.server.groupMu.Lock()
+	sc.server.cfgMu.Lock()
 	sched, _ := sc.server.cfg.GetSchedule(id)
 	if sched == nil {
-		sc.server.groupMu.Unlock()
+		sc.server.cfgMu.Unlock()
 		return fmt.Errorf("schedule %q not found", id)
 	}
 	schedCopy := *sched
@@ -148,7 +148,7 @@ func (sc *scheduler) runNow(id string) error {
 	for k, v := range sc.server.cfg.VMGroups {
 		vmGroups[k] = v
 	}
-	sc.server.groupMu.Unlock()
+	sc.server.cfgMu.Unlock()
 
 	sc.execute(schedCopy, vmGroups)
 	return nil

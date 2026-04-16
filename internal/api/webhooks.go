@@ -34,10 +34,10 @@ func (s *Server) DispatchWebhooks(event Event) {
 		return
 	}
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	webhooks := make([]config.Webhook, len(s.cfg.Webhooks))
 	copy(webhooks, s.cfg.Webhooks)
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	for _, wh := range webhooks {
 		if !wh.Enabled {

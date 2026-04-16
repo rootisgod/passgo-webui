@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, listGroups, listProfiles, dismissLaunch, getHostResources, ApiError } from '../api/client.js'
+import { listVMs, listLaunches, listGroups, listProfiles, dismissLaunch, getHostResources } from '../api/client.js'
 import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
@@ -98,10 +98,8 @@ export const useVmStore = defineStore('vms', {
           recordMetrics('__host__', { cpu: hostData.load_avg_1 || 0, memory: memPct, disk: diskPct })
         }
       } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          this.authenticated = false
-          return
-        }
+        // 401 is handled centrally via the 'passgo:unauthorized' event in App.vue.
+        // Treat it as a normal error here — the listener flips authenticated.
         this.error = err.message
       } finally {
         this.loading = false

@@ -97,8 +97,7 @@ func (s *Server) handleUpdateVMDefaults(w http.ResponseWriter, r *http.Request) 
 		req.DiskGB = 1
 	}
 	s.cfg.VMDefaults = &req
-	configPath := config.DefaultConfigPath()
-	if err := s.cfg.Save(configPath); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		s.logger.Error("failed to save config", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return

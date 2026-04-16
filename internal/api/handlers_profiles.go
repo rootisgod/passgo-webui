@@ -8,9 +8,9 @@ import (
 )
 
 func (s *Server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	profiles := s.cfg.GetProfiles()
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 	writeJSON(w, http.StatusOK, profiles)
 }
 
@@ -21,10 +21,10 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.AddProfile(p)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		if err.Error() == "profile with id \""+p.ID+"\" already exists" {
 			writeError(w, http.StatusConflict, err.Error())
 		} else {
@@ -32,13 +32,13 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if saveErr := s.cfg.Save(config.DefaultConfigPath()); saveErr != nil {
-		s.groupMu.Unlock()
+	if saveErr := s.cfg.Save(s.configPath); saveErr != nil {
+		s.cfgMu.Unlock()
 		s.logger.Error("failed to save config", "err", saveErr)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return
 	}
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	s.eventLog.EmitHTTPEvent(r, "config", "create_profile", p.Name, "success", "")
 	writeJSON(w, http.StatusCreated, p)
@@ -54,10 +54,10 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p.ID = id
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.UpdateProfile(p)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		if err.Error() == "profile \""+id+"\" not found" {
 			writeError(w, http.StatusNotFound, err.Error())
 		} else {
@@ -65,13 +65,13 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if saveErr := s.cfg.Save(config.DefaultConfigPath()); saveErr != nil {
-		s.groupMu.Unlock()
+	if saveErr := s.cfg.Save(s.configPath); saveErr != nil {
+		s.cfgMu.Unlock()
 		s.logger.Error("failed to save config", "err", saveErr)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return
 	}
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	s.eventLog.EmitHTTPEvent(r, "config", "update_profile", p.Name, "success", "")
 	writeJSON(w, http.StatusOK, p)
@@ -80,20 +80,20 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	s.groupMu.Lock()
+	s.cfgMu.Lock()
 	err := s.cfg.DeleteProfile(id)
 	if err != nil {
-		s.groupMu.Unlock()
+		s.cfgMu.Unlock()
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if saveErr := s.cfg.Save(config.DefaultConfigPath()); saveErr != nil {
-		s.groupMu.Unlock()
+	if saveErr := s.cfg.Save(s.configPath); saveErr != nil {
+		s.cfgMu.Unlock()
 		s.logger.Error("failed to save config", "err", saveErr)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return
 	}
-	s.groupMu.Unlock()
+	s.cfgMu.Unlock()
 
 	s.eventLog.EmitHTTPEvent(r, "config", "delete_profile", id, "success", "")
 	writeMessage(w, "profile deleted")

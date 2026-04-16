@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
-
-	"github.com/rootisgod/passgo-web/internal/config"
 )
 
 type groupsResponse struct {
@@ -14,8 +12,8 @@ type groupsResponse struct {
 }
 
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	// Auto-clean stale VM assignments
 	vms, err := s.mp.ListVMs()
@@ -32,7 +30,7 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if changed {
-			s.cfg.Save(config.DefaultConfigPath())
+			s.cfg.Save(s.configPath)
 		}
 	}
 
@@ -51,8 +49,8 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	if slices.Contains(s.cfg.Groups, req.Name) {
 		writeError(w, http.StatusConflict, "group already exists")
@@ -60,7 +58,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.cfg.Groups = append(s.cfg.Groups, req.Name)
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
@@ -78,8 +76,8 @@ func (s *Server) handleRenameGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	idx := slices.Index(s.cfg.Groups, oldName)
 	if idx < 0 {
@@ -98,7 +96,7 @@ func (s *Server) handleRenameGroup(w http.ResponseWriter, r *http.Request) {
 			s.cfg.VMGroups[vm] = req.Name
 		}
 	}
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
@@ -109,8 +107,8 @@ func (s *Server) handleRenameGroup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	idx := slices.Index(s.cfg.Groups, name)
 	if idx < 0 {
@@ -124,7 +122,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 			delete(s.cfg.VMGroups, vm)
 		}
 	}
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
@@ -142,8 +140,8 @@ func (s *Server) handleAssignVmGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	if req.Group != "" && !slices.Contains(s.cfg.Groups, req.Group) {
 		writeError(w, http.StatusNotFound, "group not found")
@@ -155,7 +153,7 @@ func (s *Server) handleAssignVmGroup(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.cfg.VMGroups[req.VM] = req.Group
 	}
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}
@@ -172,11 +170,11 @@ func (s *Server) handleReorderGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.groupMu.Lock()
-	defer s.groupMu.Unlock()
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 
 	s.cfg.Groups = req.Groups
-	if err := s.cfg.Save(config.DefaultConfigPath()); err != nil {
+	if err := s.cfg.Save(s.configPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config")
 		return
 	}

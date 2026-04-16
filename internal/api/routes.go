@@ -15,6 +15,7 @@ import (
 type Server struct {
 	mp                 *multipass.Client
 	cfg                *config.Config
+	configPath         string // path to the loaded config file — all Save() calls must use this, not DefaultConfigPath
 	logger             *slog.Logger
 	version            string
 	buildTime          string
@@ -23,7 +24,13 @@ type Server struct {
 	launches           *launchTracker
 	sessions           *sessionStore
 	ptySessions        *ptyStore
-	groupMu            sync.Mutex
+	// cfgMu serialises read/modify/write of Config. Gates every mutation:
+	// groups, VM-group assignments, tokens, webhooks, profiles, schedules,
+	// LLM config. Held across cfg.Save() on purpose — releasing it before the
+	// write would need a deep Clone() of Config to avoid racing map mutations
+	// against json.Marshal, and on a homelab the ms-scale save is not a
+	// contention point worth that complexity.
+	cfgMu              sync.Mutex
 	ansibleRunner      ansibleRunner
 	scheduler          *scheduler
 	loginLimiter       *loginRateLimiter
@@ -31,10 +38,11 @@ type Server struct {
 	eventLog           *EventLog
 }
 
-func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
+func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
 	s := &Server{
 		mp:                 mp,
 		cfg:                cfg,
+		configPath:         configPath,
 		logger:             logger,
 		version:            version,
 		buildTime:          buildTime,
@@ -51,9 +59,9 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 	s.scheduler = newScheduler(s)
 	s.scheduler.start()
 
-	// Event log for audit trail
-	eventsPath := filepath.Join(filepath.Dir(config.DefaultConfigPath()), "events.jsonl")
-	el, err := NewEventLog(eventsPath)
+	// Event log for audit trail — derive path from the configured config location
+	eventsPath := filepath.Join(filepath.Dir(configPath), "events.jsonl")
+	el, err := NewEventLog(eventsPath, logger)
 	if err != nil {
 		logger.Error("failed to open event log", "err", err)
 	}
@@ -70,6 +78,9 @@ func NewServer(mp *multipass.Client, cfg *config.Config, logger *slog.Logger, ve
 func (s *Server) Shutdown() {
 	s.scheduler.stop()
 	s.ptySessions.shutdown()
+	s.sessions.Shutdown()
+	s.loginLimiter.Shutdown()
+	s.apiLimiter.Shutdown()
 	if s.eventLog != nil {
 		s.eventLog.Close()
 	}

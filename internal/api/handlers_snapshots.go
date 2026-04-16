@@ -6,7 +6,10 @@ import (
 )
 
 func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	snapshots, err := s.mp.ListSnapshots(name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -21,7 +24,10 @@ type createSnapshotRequest struct {
 }
 
 func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
-	vmName := r.PathValue("name")
+	vmName, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
 	var req createSnapshotRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "snapshot name is required")
@@ -37,8 +43,14 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
-	vmName := r.PathValue("name")
-	snap := r.PathValue("snap")
+	vmName, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
+	snap, ok := validSnapshotName(w, r, "snap")
+	if !ok {
+		return
+	}
 	if err := s.mp.RestoreSnapshot(vmName, snap); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "restore_snapshot", vmName, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -49,8 +61,14 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
-	vmName := r.PathValue("name")
-	snap := r.PathValue("snap")
+	vmName, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
+	snap, ok := validSnapshotName(w, r, "snap")
+	if !ok {
+		return
+	}
 	if err := s.mp.DeleteSnapshot(vmName, snap); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "delete_snapshot", vmName, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
