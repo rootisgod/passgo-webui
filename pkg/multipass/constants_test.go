@@ -36,6 +36,18 @@ func TestValidateGroupName(t *testing.T) {
 	}
 }
 
+func TestValidateProfileID(t *testing.T) {
+	if err := ValidateProfileID("dev_server-01"); err != nil {
+		t.Errorf("valid id rejected: %v", err)
+	}
+	if err := ValidateProfileID("--all"); err == nil {
+		t.Error("expected rejection of --all")
+	}
+	if err := ValidateProfileID(""); err == nil {
+		t.Error("expected rejection of empty id")
+	}
+}
+
 func TestValidatePlaybookFilename(t *testing.T) {
 	if err := ValidatePlaybookFilename("deploy.yml"); err != nil {
 		t.Errorf("deploy.yml rejected: %v", err)
