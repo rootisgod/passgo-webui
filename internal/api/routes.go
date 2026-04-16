@@ -132,6 +132,11 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/vms/{name}/files", s.handleDownloadFile)
 	mux.HandleFunc("POST /api/v1/vms/{name}/files", s.handleUploadFile)
 	mux.HandleFunc("GET /api/v1/vms/{name}/files/ls", s.handleListFiles)
+	mux.HandleFunc("POST /api/v1/vms/{name}/files/mkdir", s.handleMkdirInVM)
+
+	// Host file browsing (used by the Browse Host… picker in mount creation)
+	mux.HandleFunc("GET /api/v1/host/files/ls", s.handleListHostFiles)
+	mux.HandleFunc("GET /api/v1/host/home", s.handleHostHome)
 
 	// Snapshots
 	mux.HandleFunc("GET /api/v1/vms/{name}/snapshots", s.handleListSnapshots)
@@ -143,6 +148,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/vms/{name}/mounts", s.handleListMounts)
 	mux.HandleFunc("POST /api/v1/vms/{name}/mounts", s.handleAddMount)
 	mux.HandleFunc("DELETE /api/v1/vms/{name}/mounts", s.handleRemoveMount)
+	mux.HandleFunc("POST /api/v1/vms/{name}/mounts/open", s.handleOpenMount)
 
 	// System
 	mux.HandleFunc("GET /api/v1/images", s.handleFindImages)

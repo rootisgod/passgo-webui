@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path"
@@ -140,6 +141,41 @@ func parseLsOutput(output string) []fileEntry {
 	}
 
 	return entries
+}
+
+type mkdirRequest struct {
+	Path string `json:"path"`
+}
+
+// handleMkdirInVM creates a directory on the VM for use as a mount target or
+// general workspace. Runs via sudo so paths like /mnt/... work — multipass's
+// default user has passwordless sudo, which is the same privilege level the
+// interactive user gets via `multipass shell`.
+func (s *Server) handleMkdirInVM(w http.ResponseWriter, r *http.Request) {
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
+	var req mkdirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if !validateRemotePath(req.Path) {
+		writeError(w, http.StatusBadRequest, "invalid path")
+		return
+	}
+	if _, err := s.mp.ExecInVM(name, []string{"sudo", "mkdir", "-p", req.Path}); err != nil {
+		if s.eventLog != nil {
+			s.eventLog.EmitEvent("vm", "mkdir", "user", name, "failed", req.Path+": "+err.Error())
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if s.eventLog != nil {
+		s.eventLog.EmitEvent("vm", "mkdir", "user", name, "ok", req.Path)
+	}
+	writeMessage(w, "directory created")
 }
 
 // sanitizeFilename removes characters that could break HTTP headers or enable injection.

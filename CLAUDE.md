@@ -186,10 +186,16 @@ VMs (protected):   GET/POST /vms, GET /vms/{name}, POST /vms/{name}/start|stop|s
                    GET /vms/{name}/cloud-init/status
 Snapshots:         GET/POST /vms/{name}/snapshots, POST .../restore, DELETE .../{snap}
 Mounts:            GET/POST/DELETE /vms/{name}/mounts
+                   POST /vms/{name}/mounts/open (open source_path on host in native file manager)
+VM files:          GET /vms/{name}/files/ls?path (directory listing via `multipass exec -- ls -la`)
+                   GET /vms/{name}/files?path (download), POST /vms/{name}/files (upload)
+                   POST /vms/{name}/files/mkdir (sudo mkdir -p)
 Cloud-Init:        GET /cloud-init/templates (list all, built-in + user)
                    GET/POST/PUT/DELETE /cloud-init/templates/{name} (CRUD)
 Launches:          GET /launches, DELETE /launches/{name} (async launch tracking)
 Host:              GET /host/resources (CPU count, total RAM)
+                   GET /host/home (resolved $HOME for the host file browser)
+                   GET /host/files/ls?path (directory listing via os.ReadDir, defaults to $HOME)
 Networks:          GET /networks
 Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (list),
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
@@ -238,8 +244,8 @@ App.vue
 │   ├── VmConsoleTab.vue (multi-tab container: tab bar + N ConsoleTerminal instances)
 │   │   └── ConsoleTerminal.vue (single xterm.js + WebSocket session, power-on guard)
 │   ├── VmSnapshotsTab.vue (clone from snapshot support)
-│   ├── VmMountsTab.vue
-│   ├── VmTransferTab.vue (file browser, power-on guard)
+│   ├── VmMountsTab.vue (Open on Host button + Browse Host… / Browse VM… pickers via PathBrowserModal)
+│   ├── VmTransferTab.vue (file browser, power-on guard — shares `useFileList` composable with PathBrowserModal)
 │   ├── VmConfigTab.vue
 │   └── VmAnsibleTab.vue (playbook CRUD + target picker + SSE output via xterm.js)
 │       └── PlaybookEditor.vue (shared with AnsiblePanel)
