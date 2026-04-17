@@ -8,6 +8,34 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install Task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Stub frontend dist for go:embed
+        run: |
+          mkdir -p cmd/server/frontend/dist
+          echo '<!doctype html><title>stub</title>' > cmd/server/frontend/dist/index.html
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Run tests with race detector
+        run: task test-race
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -87,7 +115,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [test, build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
