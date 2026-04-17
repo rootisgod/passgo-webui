@@ -25,6 +25,11 @@ jobs:
       - name: Download modules
         run: go mod download
 
+      - name: Stub frontend dist for go:embed
+        run: |
+          mkdir -p cmd/server/frontend/dist
+          echo '<!doctype html><title>stub</title>' > cmd/server/frontend/dist/index.html
+
       - name: go vet
         run: go vet ./...
 
