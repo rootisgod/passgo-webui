@@ -174,6 +174,15 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Auto-refresh: `tool_done` events for state-changing tools trigger `vmStore.fetchVMs()` immediately
 <!-- GSD:conventions-end -->
 
+### CI / Release gating
+- One workflow: `.github/workflows/release.yml`. Three jobs:
+  - `test` — `go vet ./...` + `task test-race` (race detector on, all packages). Stubs `cmd/server/frontend/dist/index.html` so `//go:embed all:frontend/dist` resolves without a real Vite build.
+  - `build` — cross-compiles linux/darwin/windows × amd64/arm64, UPX-compresses linux binaries.
+  - `release` — `needs: [test, build]`, gated on `push` to `main`. Tests or build failing blocks the release.
+- `test` and `build` run in parallel on every PR and push.
+- Any Go code that depends on the embedded frontend must tolerate the stub in CI, or the test job will fail.
+- Zone-abbrev parsing (`parseMultipassCreated` in `pkg/multipass/snapshots.go`): Go's `time.Parse` with `"MST"` layout tokens resolves abbreviations from the host's local tzdata. On UTC hosts (CI runners, typical Linux servers) unknown abbrevs like "BST" get offset 0, silently dropping the hour adjustment. The parser consults a `knownZoneOffsets` table and rewrites the instant when Parse returns a fabricated zero-offset zone. Any new code parsing timestamps from multipass output should use the same pattern, not `time.Parse` directly.
+
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
