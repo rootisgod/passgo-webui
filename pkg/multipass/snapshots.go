@@ -38,12 +38,40 @@ var multipassCreatedLayouts = []string{
 	time.RFC3339,
 }
 
+// knownZoneOffsets covers common IANA zone abbreviations in seconds east of UTC.
+// time.Parse only resolves abbreviations present in the host's local tzdata —
+// e.g. a UTC-only Linux server parsing "BST" gets offset 0, silently dropping
+// the hour adjustment. We consult this table when Parse returns a fabricated
+// zero-offset zone so timestamps are deterministic across hosts.
+var knownZoneOffsets = map[string]int{
+	"UTC": 0, "GMT": 0, "Z": 0,
+	"BST": 3600, "IST": 3600, "WEST": 3600, "WET": 0,
+	"CET": 3600, "CEST": 7200,
+	"EET": 7200, "EEST": 10800,
+	"MSK": 10800,
+	"EST": -18000, "EDT": -14400,
+	"CST": -21600, "CDT": -18000,
+	"MST": -25200, "MDT": -21600,
+	"PST": -28800, "PDT": -25200,
+	"AKST": -32400, "AKDT": -28800,
+	"HST": -36000,
+	"AEST": 36000, "AEDT": 39600,
+	"JST": 32400, "KST": 32400,
+	"SGT": 28800, "HKT": 28800,
+}
+
 func parseMultipassCreated(raw string) string {
 	if raw == "" {
 		return ""
 	}
 	for _, layout := range multipassCreatedLayouts {
 		if t, err := time.Parse(layout, raw); err == nil {
+			name, offset := t.Zone()
+			if offset == 0 && name != "UTC" && name != "" {
+				if real, ok := knownZoneOffsets[name]; ok {
+					t = t.Add(-time.Duration(real) * time.Second)
+				}
+			}
 			return t.UTC().Format(time.RFC3339)
 		}
 	}
