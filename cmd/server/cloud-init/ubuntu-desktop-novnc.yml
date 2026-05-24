@@ -1,0 +1,75 @@
+#cloud-config
+
+# Ubuntu desktop + noVNC console for PassGo Web.
+#
+# Creates an XFCE desktop reachable through noVNC on http://<vm-ip>:6080/.
+# The PassGo Web VNC tab reverse-proxies this endpoint. Default VNC password: passgo
+# Intended for trusted homelab/internal networks only; change the password for wider exposure.
+
+package_update: true
+
+packages:
+  - xfce4
+  - xfce4-goodies
+  - dbus-x11
+  - tigervnc-standalone-server
+  - novnc
+  - websockify
+
+write_files:
+  - path: /home/ubuntu/.vnc/xstartup
+    owner: ubuntu:ubuntu
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      unset SESSION_MANAGER
+      unset DBUS_SESSION_BUS_ADDRESS
+      startxfce4 &
+
+  - path: /etc/systemd/system/passgo-vnc.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=PassGo VNC desktop for ubuntu user
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=forking
+      User=ubuntu
+      Group=ubuntu
+      WorkingDirectory=/home/ubuntu
+      Environment=HOME=/home/ubuntu
+      ExecStartPre=/usr/bin/mkdir -p /home/ubuntu/.vnc
+      ExecStartPre=/bin/bash -lc 'printf "passgo\npassgo\nn\n" | /usr/bin/vncpasswd'
+      ExecStart=/usr/bin/vncserver :1 -localhost yes -geometry 1280x800 -depth 24
+      ExecStop=/usr/bin/vncserver -kill :1
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/passgo-novnc.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=PassGo noVNC web console
+      After=passgo-vnc.service
+      Requires=passgo-vnc.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/websockify --web=/usr/share/novnc 0.0.0.0:6080 127.0.0.1:5901
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, passgo-vnc.service ]
+  - [ systemctl, enable, --now, passgo-novnc.service ]
+
+final_message: "PassGo noVNC desktop ready on port 6080 after $UPTIME seconds"
