@@ -44,9 +44,16 @@ func bodySizeLimitMiddleware(next http.Handler) http.Handler {
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self' data:")
+		if isVNCProxyPath(r.URL.Path) {
+			// noVNC is intentionally embedded in the PassGo VM detail panel.
+			// Keep it same-origin only, but do not use DENY for the proxied page.
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; frame-ancestors 'self'")
+		} else {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self' data:")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -99,6 +106,10 @@ func sha256Hex(s string) string {
 
 func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/")
+}
+
+func isVNCProxyPath(path string) bool {
+	return strings.Contains(path, "/vnc/proxy/")
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
