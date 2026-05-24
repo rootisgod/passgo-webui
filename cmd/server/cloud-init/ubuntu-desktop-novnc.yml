@@ -17,14 +17,14 @@ packages:
   - websockify
 
 write_files:
-  - path: /home/ubuntu/.vnc/xstartup
+  - path: /home/ubuntu/.config/tigervnc/xstartup
     owner: ubuntu:ubuntu
     permissions: '0755'
     content: |
       #!/bin/sh
       unset SESSION_MANAGER
       unset DBUS_SESSION_BUS_ADDRESS
-      startxfce4 &
+      exec startxfce4
 
   - path: /etc/systemd/system/passgo-vnc.service
     permissions: '0644'
@@ -40,8 +40,6 @@ write_files:
       Group=ubuntu
       WorkingDirectory=/home/ubuntu
       Environment=HOME=/home/ubuntu
-      ExecStartPre=/usr/bin/mkdir -p /home/ubuntu/.vnc
-      ExecStartPre=/bin/bash -lc 'printf "passgo\npassgo\nn\n" | /usr/bin/vncpasswd'
       ExecStart=/usr/bin/vncserver :1 -localhost yes -geometry 1280x800 -depth 24
       ExecStop=/usr/bin/vncserver -kill :1
       Restart=on-failure
@@ -68,6 +66,10 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
+  - [ install, -d, -o, ubuntu, -g, ubuntu, -m, '0700', /home/ubuntu/.config/tigervnc ]
+  - [ bash, -lc, 'printf "passgo\n" | vncpasswd -f > /home/ubuntu/.config/tigervnc/passwd' ]
+  - [ chown, ubuntu:ubuntu, /home/ubuntu/.config/tigervnc/passwd ]
+  - [ chmod, '0600', /home/ubuntu/.config/tigervnc/passwd ]
   - [ systemctl, daemon-reload ]
   - [ systemctl, enable, --now, passgo-vnc.service ]
   - [ systemctl, enable, --now, passgo-novnc.service ]
