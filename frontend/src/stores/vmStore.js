@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { listVMs, listLaunches, listGroups, listProfiles, dismissLaunch, getHostResources } from '../api/client.js'
+import { listVMs, listLaunches, listGroups, listProfiles, listVMTemplates, dismissLaunch, getHostResources } from '../api/client.js'
 import { recordMetrics } from '../composables/useMetricsHistory.js'
 
 export const useVmStore = defineStore('vms', {
@@ -18,6 +18,8 @@ export const useVmStore = defineStore('vms', {
     groups: [],           // ordered list of group names
     vmGroups: {},         // {vmName: groupName}
     expandedGroups: {},   // {groupName: bool} local UI state
+    // Templates
+    vmTemplates: {},       // {vmName: true}
     // Profiles
     profiles: [],
   }),
@@ -38,6 +40,8 @@ export const useVmStore = defineStore('vms', {
     failedLaunches: (state) => state.launches.filter(l => l.status === 'failed'),
     selectedVmObjects: (state) => state.vms.filter(vm => state.selectedVms.includes(vm.name)),
     ungroupedVms: (state) => state.vms.filter(vm => !state.vmGroups[vm.name]),
+    templateVms: (state) => state.vms.filter(vm => state.vmTemplates[vm.name]),
+    isTemplate: (state) => (name) => !!state.vmTemplates[name],
   },
 
   actions: {
@@ -58,10 +62,11 @@ export const useVmStore = defineStore('vms', {
       try {
         this.loading = true
         this.error = null
-        const [data, launchData, hostData] = await Promise.all([
+        const [data, launchData, hostData, templateData] = await Promise.all([
           listVMs(),
           listLaunches().catch(() => []),
           getHostResources().catch(() => null),
+          listVMTemplates().catch(() => ({ templates: {} })),
         ])
         const launches = Array.isArray(launchData) ? launchData : []
         const launchingNames = new Set(launches.filter(l => l.status === 'launching').map(l => l.name))
@@ -74,6 +79,7 @@ export const useVmStore = defineStore('vms', {
         }
         this.vms = vms
         this.launches = launches
+        this.vmTemplates = templateData?.templates || {}
         this.lastRefresh = new Date()
 
         // Record metrics for running VMs
@@ -111,6 +117,15 @@ export const useVmStore = defineStore('vms', {
         const data = await listGroups()
         this.groups = data.groups || []
         this.vmGroups = data.vmGroups || {}
+      } catch {
+        // Non-critical — keep existing state
+      }
+    },
+
+    async fetchTemplates() {
+      try {
+        const data = await listVMTemplates()
+        this.vmTemplates = data.templates || {}
       } catch {
         // Non-critical — keep existing state
       }

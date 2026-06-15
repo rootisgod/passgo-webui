@@ -30,7 +30,7 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 // Excludes file uploads (multipart) which have their own limit via ParseMultipartForm.
 func bodySizeLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isAPIPath(r.URL.Path) && r.Body != nil {
+		if isAPIPath(r.URL.Path) && !isProxyPath(r.URL.Path) && r.Body != nil {
 			ct := r.Header.Get("Content-Type")
 			if !strings.HasPrefix(ct, "multipart/") {
 				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
@@ -44,9 +44,11 @@ func bodySizeLimitMiddleware(next http.Handler) http.Handler {
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self' data:")
+		if !isProxyPath(r.URL.Path) {
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; font-src 'self' data:")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -99,6 +101,10 @@ func sha256Hex(s string) string {
 
 func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/")
+}
+
+func isProxyPath(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/proxy/")
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

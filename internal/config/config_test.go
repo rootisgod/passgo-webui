@@ -23,6 +23,11 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 		TrustProxy:   true,
 		Groups:       []string{"prod", "dev"},
 		VMGroups:     map[string]string{"web-01": "prod", "test-01": "dev"},
+		VMTemplates:  map[string]bool{"base-image": true},
+		ProxyRules: []ProxyRule{
+			{ID: "px_dev", VM: "web-01", Port: 3000, Protocol: "http", Label: "dev app", Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"},
+			{ID: "px_ssh", VM: "web-01", Port: 22, Protocol: "ssh", HostPort: 2222, Label: "ssh", Enabled: true, CreatedAt: "2026-06-15T12:01:00Z"},
+		},
 		LLM: &LLMConfig{
 			BaseURL: "https://api.example.com",
 			Model:   "gpt-4",
@@ -50,6 +55,12 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.VMGroups, orig.VMGroups) {
 		t.Errorf("VMGroups: got %v, want %v", got.VMGroups, orig.VMGroups)
+	}
+	if !reflect.DeepEqual(got.VMTemplates, orig.VMTemplates) {
+		t.Errorf("VMTemplates: got %v, want %v", got.VMTemplates, orig.VMTemplates)
+	}
+	if !reflect.DeepEqual(got.ProxyRules, orig.ProxyRules) {
+		t.Errorf("ProxyRules: got %v, want %v", got.ProxyRules, orig.ProxyRules)
 	}
 	if !reflect.DeepEqual(got.Profiles, orig.Profiles) {
 		t.Errorf("Profiles: got %+v, want %+v", got.Profiles, orig.Profiles)
@@ -147,6 +158,15 @@ func TestLoad_FillsDefaults(t *testing.T) {
 	}
 	if c.Groups == nil {
 		t.Error("Groups should default to empty slice, not nil")
+	}
+	if c.VMGroups == nil {
+		t.Error("VMGroups should default to empty map, not nil")
+	}
+	if c.VMTemplates == nil {
+		t.Error("VMTemplates should default to empty map, not nil")
+	}
+	if c.ProxyRules == nil {
+		t.Error("ProxyRules should default to empty slice, not nil")
 	}
 }
 
@@ -403,6 +423,77 @@ func TestAPITokenCRUD(t *testing.T) {
 	}
 }
 
+// --- ProxyRule CRUD ---
+
+func TestProxyRuleCRUD(t *testing.T) {
+	c := &Config{}
+	rule := ProxyRule{ID: "px_dev", VM: "dev-vm", Port: 5173, Label: "vite", Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}
+	if err := c.AddProxyRule(rule); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := c.AddProxyRule(rule); err == nil {
+		t.Error("duplicate ID should error")
+	}
+	dupeTarget := ProxyRule{ID: "px_other", VM: "dev-vm", Port: 5173, Enabled: true, CreatedAt: "2026-06-15T12:01:00Z"}
+	if err := c.AddProxyRule(dupeTarget); err == nil {
+		t.Error("duplicate VM/port should error")
+	}
+	sshRule := ProxyRule{ID: "px_ssh", VM: "dev-vm", Port: 22, Protocol: "ssh", HostPort: 2222, Enabled: true, CreatedAt: "2026-06-15T12:02:00Z"}
+	if err := c.AddProxyRule(sshRule); err != nil {
+		t.Fatalf("add ssh rule: %v", err)
+	}
+	dupeHostPort := ProxyRule{ID: "px_ssh_other", VM: "other-vm", Port: 22, Protocol: "ssh", HostPort: 2222, Enabled: true, CreatedAt: "2026-06-15T12:03:00Z"}
+	if err := c.AddProxyRule(dupeHostPort); err == nil {
+		t.Error("duplicate SSH host port should error")
+	}
+	got, idx := c.GetProxyRule("px_dev")
+	if idx != 0 || got == nil || got.Port != 5173 {
+		t.Errorf("get: idx=%d got=%+v", idx, got)
+	}
+	rule.Enabled = false
+	if err := c.UpdateProxyRule(rule); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ = c.GetProxyRule("px_dev")
+	if got.Enabled {
+		t.Error("update didn't take")
+	}
+	if err := c.DeleteProxyRule("px_dev"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := c.DeleteProxyRule("px_dev"); err == nil {
+		t.Error("delete non-existent should error")
+	}
+}
+
+func TestProxyRuleValidate(t *testing.T) {
+	cases := []struct {
+		name string
+		rule ProxyRule
+		ok   bool
+	}{
+		{"valid", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}, true},
+		{"valid ssh", ProxyRule{ID: "px_ssh", VM: "dev-vm", Port: 22, Protocol: "ssh", HostPort: 2222, Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}, true},
+		{"empty id", ProxyRule{VM: "dev-vm", Port: 3000}, false},
+		{"bad id", ProxyRule{ID: "bad id", VM: "dev-vm", Port: 3000}, false},
+		{"empty vm", ProxyRule{ID: "px_ok", Port: 3000}, false},
+		{"bad port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 0}, false},
+		{"bad protocol", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Protocol: "smtp"}, false},
+		{"ssh missing host port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 22, Protocol: "ssh"}, false},
+		{"http host port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Protocol: "http", HostPort: 2222}, false},
+		{"bad expiry", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, ExpiresAt: "tomorrow"}, false},
+	}
+	for _, tc := range cases {
+		err := tc.rule.Validate()
+		if tc.ok && err != nil {
+			t.Errorf("%s: expected ok, got %v", tc.name, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("%s: expected error, got nil", tc.name)
+		}
+	}
+}
+
 // --- CreateDefault ---
 
 func TestCreateDefault(t *testing.T) {
@@ -420,6 +511,12 @@ func TestCreateDefault(t *testing.T) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(cfg.Password), []byte("admin")); err != nil {
 		t.Errorf("default password doesn't verify: %v", err)
+	}
+	if cfg.VMTemplates == nil {
+		t.Error("VMTemplates should be initialized")
+	}
+	if cfg.ProxyRules == nil {
+		t.Error("ProxyRules should be initialized")
 	}
 
 	// The file should exist on disk.

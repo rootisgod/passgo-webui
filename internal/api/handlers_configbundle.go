@@ -21,13 +21,15 @@ type configBundle struct {
 }
 
 type configExport struct {
-	Groups     []string            `json:"groups,omitempty"`
-	VMGroups   map[string]string   `json:"vm_groups,omitempty"`
-	VMDefaults *config.VMDefaults  `json:"vm_defaults,omitempty"`
-	LLM        *llmConfigExport    `json:"llm,omitempty"`
-	Profiles   []config.Profile    `json:"profiles,omitempty"`
-	Schedules  []config.Schedule   `json:"schedules,omitempty"`
-	Webhooks   []webhookExport     `json:"webhooks,omitempty"`
+	Groups      []string           `json:"groups,omitempty"`
+	VMGroups    map[string]string  `json:"vm_groups,omitempty"`
+	VMTemplates map[string]bool    `json:"vm_templates,omitempty"`
+	ProxyRules  []config.ProxyRule `json:"proxy_rules,omitempty"`
+	VMDefaults  *config.VMDefaults `json:"vm_defaults,omitempty"`
+	LLM         *llmConfigExport   `json:"llm,omitempty"`
+	Profiles    []config.Profile   `json:"profiles,omitempty"`
+	Schedules   []config.Schedule  `json:"schedules,omitempty"`
+	Webhooks    []webhookExport    `json:"webhooks,omitempty"`
 }
 
 type webhookExport struct {
@@ -49,11 +51,13 @@ type llmConfigExport struct {
 func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.Lock()
 	export := &configExport{
-		Groups:     s.cfg.Groups,
-		VMGroups:   s.cfg.VMGroups,
-		VMDefaults: s.cfg.VMDefaults,
-		Profiles:   s.cfg.GetProfiles(),
-		Schedules:  s.cfg.GetSchedules(),
+		Groups:      s.cfg.Groups,
+		VMGroups:    s.cfg.VMGroups,
+		VMTemplates: s.cfg.VMTemplates,
+		ProxyRules:  s.cfg.GetProxyRules(),
+		VMDefaults:  s.cfg.VMDefaults,
+		Profiles:    s.cfg.GetProfiles(),
+		Schedules:   s.cfg.GetSchedules(),
 	}
 	// Export webhooks without secrets
 	webhooks := s.cfg.GetWebhooks()
@@ -161,6 +165,21 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		if bundle.Config.VMGroups != nil {
 			s.cfg.VMGroups = bundle.Config.VMGroups
 		}
+		if bundle.Config.VMTemplates != nil {
+			s.cfg.VMTemplates = bundle.Config.VMTemplates
+		}
+		if bundle.Config.ProxyRules != nil {
+			imported := make([]config.ProxyRule, len(bundle.Config.ProxyRules))
+			for i, rule := range bundle.Config.ProxyRules {
+				if err := rule.Validate(); err != nil {
+					s.cfgMu.Unlock()
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid proxy rule %q: %s", rule.ID, err.Error()))
+					return
+				}
+				imported[i] = rule
+			}
+			s.cfg.ProxyRules = imported
+		}
 		if bundle.Config.VMDefaults != nil {
 			s.cfg.VMDefaults = bundle.Config.VMDefaults
 		}
@@ -208,6 +227,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cfgMu.Unlock()
+	s.reconcileTCPForwards()
 
 	templatesWritten := 0
 	for name, content := range bundle.CloudInitTemplates {

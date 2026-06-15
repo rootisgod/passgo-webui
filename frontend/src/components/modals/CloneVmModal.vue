@@ -14,6 +14,7 @@ const toasts = useToastStore()
 const store = useVmStore()
 const destName = ref('')
 const submitting = ref(false)
+const isTemplate = computed(() => store.isTemplate(props.vmName))
 
 const suggestedName = computed(() => {
   const existing = store.vms.map(v => v.name)
@@ -46,11 +47,11 @@ async function submit() {
     <div class="fixed inset-0 z-40 flex items-center justify-center">
       <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="emit('close')" />
       <div class="relative bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-6 max-w-md w-full mx-4 shadow-2xl">
-        <h3 class="text-lg font-semibold mb-4">Clone Virtual Machine</h3>
+        <h3 class="text-lg font-semibold mb-4">{{ isTemplate ? 'Clone Template' : 'Clone Virtual Machine' }}</h3>
 
         <div class="space-y-4">
           <div class="text-sm text-[var(--text-secondary)]">
-            Source: <span class="font-mono text-[var(--text-primary)]">{{ vmName }}</span>
+            {{ isTemplate ? 'Template' : 'Source' }}: <span class="font-mono text-[var(--text-primary)]">{{ vmName }}</span>
           </div>
 
           <div v-if="snapshotName" class="text-sm text-[var(--text-secondary)]">

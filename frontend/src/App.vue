@@ -19,6 +19,7 @@ import SchedulesPanel from './components/schedule/SchedulesPanel.vue'
 import ApiTokensPanel from './components/tokens/ApiTokensPanel.vue'
 import WebhooksPanel from './components/webhooks/WebhooksPanel.vue'
 import EventLogPanel from './components/events/EventLogPanel.vue'
+import ProxyRulesPanel from './components/proxy/ProxyRulesPanel.vue'
 import Toast from './components/shared/Toast.vue'
 import ChatPanel from './components/chat/ChatPanel.vue'
 
@@ -80,6 +81,7 @@ usePolling(() => {
           <AnsiblePanel v-else-if="store.selectedNode === '__ansible__'" />
           <ProfilesPanel v-else-if="store.selectedNode === '__profiles__'" />
           <SchedulesPanel v-else-if="store.selectedNode === '__schedules__'" />
+          <ProxyRulesPanel v-else-if="store.selectedNode === '__proxy-rules__'" />
           <WebhooksPanel v-else-if="store.selectedNode === '__webhooks__'" />
           <ApiTokensPanel v-else-if="store.selectedNode === '__api-tokens__'" />
           <EventLogPanel v-else-if="store.selectedNode === '__events__'" />

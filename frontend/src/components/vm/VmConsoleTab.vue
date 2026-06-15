@@ -11,6 +11,7 @@ const toasts = useToastStore()
 const vm = computed(() => store.selectedVm)
 const isRunning = computed(() => vm.value?.state === 'Running')
 const isDeleted = computed(() => vm.value?.state === 'Deleted')
+const isTemplate = computed(() => vm.value ? store.isTemplate(vm.value.name) : false)
 const starting = ref(false)
 
 const consoleTabs = ref([])
@@ -18,6 +19,7 @@ const activeSessionId = ref(null)
 let tabCounter = 0
 
 async function powerOn() {
+  if (isTemplate.value) return
   starting.value = true
   try {
     await startVM(store.selectedNode)
@@ -111,14 +113,14 @@ onMounted(() => {
   <div v-else-if="!isRunning" class="flex flex-col items-center justify-center h-full gap-4 text-[var(--text-secondary)]">
     <PowerOff class="w-12 h-12 text-[var(--muted)]" />
     <p class="text-lg">Powered Off</p>
-    <p class="text-sm">Start the VM to access the console</p>
+    <p class="text-sm">{{ isTemplate ? 'Remove the template tag to start this VM' : 'Start the VM to access the console' }}</p>
     <button
       @click="powerOn"
-      :disabled="starting"
+      :disabled="starting || isTemplate"
       class="flex items-center gap-2 mt-2 px-4 py-2 text-sm rounded bg-green-900/30 hover:bg-[var(--success)] text-green-300 hover:text-white transition-colors disabled:opacity-40"
     >
       <Play class="w-4 h-4" />
-      {{ starting ? 'Starting...' : 'Start VM' }}
+      {{ isTemplate ? 'Template Protected' : starting ? 'Starting...' : 'Start VM' }}
     </button>
   </div>
 

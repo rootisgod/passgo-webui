@@ -10,7 +10,7 @@ import Sparkline from '../shared/Sparkline.vue'
 import ConfirmModal from '../modals/ConfirmModal.vue'
 import CloudInitStatus from './CloudInitStatus.vue'
 import CloneVmModal from '../modals/CloneVmModal.vue'
-import { Play, Square, Pause, Copy, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive, Download, Key } from 'lucide-vue-next'
+import { Play, Square, Pause, Copy, Trash2, RotateCcw, Cpu, MemoryStick, HardDrive, Download, Key, LayoutTemplate } from 'lucide-vue-next'
 
 const store = useVmStore()
 const toasts = useToastStore()
@@ -125,6 +125,18 @@ const isRunning = computed(() => vm.value?.state === 'Running')
 const isStopped = computed(() => vm.value?.state === 'Stopped')
 const isSuspended = computed(() => vm.value?.state === 'Suspended')
 const isDeleted = computed(() => vm.value?.state === 'Deleted')
+const isTemplate = computed(() => vm.value ? store.isTemplate(vm.value.name) : false)
+
+async function setTemplate(template) {
+  if (!vm.value) return
+  try {
+    await api.setVMTemplate(vm.value.name, template)
+    toasts.success(template ? `"${vm.value.name}" marked as template` : `"${vm.value.name}" template tag removed`)
+    store.fetchTemplates()
+  } catch (e) {
+    toasts.error(e.message)
+  }
+}
 </script>
 
 <template>
@@ -189,6 +201,13 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
             <StatusDot :state="vm.state" />
             {{ vm.state }}
           </span>
+          <span
+            v-if="isTemplate"
+            class="px-2 py-0.5 rounded text-xs border border-yellow-800 bg-yellow-900/25 text-[var(--warning)] flex items-center gap-1.5"
+          >
+            <LayoutTemplate class="w-3 h-3" />
+            Template
+          </span>
         </div>
 
         <div class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] divide-y divide-[var(--border)]">
@@ -211,7 +230,7 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
             label="Start"
             :icon="Play"
             variant="success"
-            :disabled="isRunning || isDeleted"
+            :disabled="isRunning || isDeleted || isTemplate"
             @click="action(() => api.startVM(vm.name), `${vm.name} started`)"
           />
           <ActionButton
@@ -227,16 +246,22 @@ const isDeleted = computed(() => vm.value?.state === 'Deleted')
             @click="action(() => api.suspendVM(vm.name), `${vm.name} suspended`)"
           />
           <ActionButton
-            label="Clone"
+            :label="isTemplate ? 'Clone Template' : 'Clone'"
             :icon="Copy"
             :disabled="!isStopped"
             @click="showCloneModal = true"
           />
           <ActionButton
+            :label="isTemplate ? 'Remove Template Tag' : 'Mark as Template'"
+            :icon="LayoutTemplate"
+            :disabled="!isStopped"
+            @click="setTemplate(!isTemplate)"
+          />
+          <ActionButton
             label="Delete"
             :icon="Trash2"
             variant="danger"
-            :disabled="isDeleted"
+            :disabled="isDeleted || isTemplate"
             @click="confirmDanger(
               () => action(() => api.deleteVM(vm.name), `${vm.name} deleted`),
               `Delete VM '${vm.name}'?`

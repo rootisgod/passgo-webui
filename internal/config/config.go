@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -22,11 +23,11 @@ type LLMConfig struct {
 }
 
 type VMDefaults struct {
-	CPUs           int    `json:"cpus"`
-	MemoryMB       int    `json:"memory_mb"`
-	DiskGB         int    `json:"disk_gb"`
-	SSHPublicKey   string `json:"ssh_public_key,omitempty"`
-	SSHPrivateKey  string `json:"ssh_private_key,omitempty"`
+	CPUs          int    `json:"cpus"`
+	MemoryMB      int    `json:"memory_mb"`
+	DiskGB        int    `json:"disk_gb"`
+	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
 }
 
 type Profile struct {
@@ -171,6 +172,67 @@ func (w *Webhook) Validate() error {
 	return nil
 }
 
+type ProxyRule struct {
+	ID        string `json:"id"`
+	VM        string `json:"vm"`
+	Port      int    `json:"port"`
+	Protocol  string `json:"protocol,omitempty"`
+	HostPort  int    `json:"host_port,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Enabled   bool   `json:"enabled"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (p *ProxyRule) Validate() error {
+	p.Protocol = normalizeProxyProtocol(p.Protocol)
+	if p.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if !profileIDRegex.MatchString(p.ID) {
+		return fmt.Errorf("id must contain only letters, numbers, hyphens, and underscores")
+	}
+	if p.VM == "" {
+		return fmt.Errorf("vm is required")
+	}
+	if p.Port < 1 || p.Port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	if p.Protocol != "http" && p.Protocol != "ssh" {
+		return fmt.Errorf("protocol must be http or ssh")
+	}
+	if p.Protocol == "http" {
+		if p.HostPort != 0 {
+			return fmt.Errorf("host_port is only valid for ssh proxy rules")
+		}
+	}
+	if p.Protocol == "ssh" {
+		if p.HostPort < 1 || p.HostPort > 65535 {
+			return fmt.Errorf("host_port must be between 1 and 65535 for ssh proxy rules")
+		}
+	}
+	if len(p.Label) > 80 {
+		return fmt.Errorf("label must be 80 characters or less")
+	}
+	if p.ExpiresAt != "" {
+		if _, err := time.Parse(time.RFC3339, p.ExpiresAt); err != nil {
+			return fmt.Errorf("expires_at must be RFC3339")
+		}
+	}
+	return nil
+}
+
+func normalizeProxyProtocol(protocol string) string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "", "http", "http/ws", "web", "websocket":
+		return "http"
+	case "ssh", "tcp":
+		return "ssh"
+	default:
+		return strings.ToLower(strings.TrimSpace(protocol))
+	}
+}
+
 type Config struct {
 	Listen        string            `json:"listen"`
 	CloudInitDir  string            `json:"cloud_init_dir"`
@@ -180,6 +242,7 @@ type Config struct {
 	TrustProxy    bool              `json:"trust_proxy,omitempty"`
 	Groups        []string          `json:"groups,omitempty"`
 	VMGroups      map[string]string `json:"vm_groups,omitempty"`
+	VMTemplates   map[string]bool   `json:"vm_templates,omitempty"`
 	LLM           *LLMConfig        `json:"llm,omitempty"`
 	VMDefaults    *VMDefaults       `json:"vm_defaults,omitempty"`
 	PlaybooksDir  string            `json:"playbooks_dir,omitempty"`
@@ -187,6 +250,7 @@ type Config struct {
 	Schedules     []Schedule        `json:"schedules,omitempty"`
 	APITokens     []APIToken        `json:"api_tokens,omitempty"`
 	Webhooks      []Webhook         `json:"webhooks,omitempty"`
+	ProxyRules    []ProxyRule       `json:"proxy_rules,omitempty"`
 }
 
 func (c *Config) GetProfiles() []Profile {
@@ -363,6 +427,72 @@ func (c *Config) DeleteWebhook(id string) error {
 	return nil
 }
 
+func (c *Config) GetProxyRules() []ProxyRule {
+	if c.ProxyRules == nil {
+		return []ProxyRule{}
+	}
+	return c.ProxyRules
+}
+
+func (c *Config) GetProxyRule(id string) (*ProxyRule, int) {
+	for i := range c.ProxyRules {
+		if c.ProxyRules[i].ID == id {
+			return &c.ProxyRules[i], i
+		}
+	}
+	return nil, -1
+}
+
+func (c *Config) AddProxyRule(rule ProxyRule) error {
+	if err := rule.Validate(); err != nil {
+		return err
+	}
+	if existing, _ := c.GetProxyRule(rule.ID); existing != nil {
+		return fmt.Errorf("proxy rule with id %q already exists", rule.ID)
+	}
+	for _, existing := range c.ProxyRules {
+		existing.Protocol = normalizeProxyProtocol(existing.Protocol)
+		if existing.Protocol == rule.Protocol && existing.VM == rule.VM && existing.Port == rule.Port {
+			return fmt.Errorf("%s proxy rule for %s:%d already exists", rule.Protocol, rule.VM, rule.Port)
+		}
+		if rule.Protocol == "ssh" && existing.Protocol == "ssh" && existing.HostPort == rule.HostPort {
+			return fmt.Errorf("ssh proxy rule for host port %d already exists", rule.HostPort)
+		}
+	}
+	c.ProxyRules = append(c.ProxyRules, rule)
+	return nil
+}
+
+func (c *Config) UpdateProxyRule(rule ProxyRule) error {
+	if err := rule.Validate(); err != nil {
+		return err
+	}
+	_, idx := c.GetProxyRule(rule.ID)
+	if idx == -1 {
+		return fmt.Errorf("proxy rule %q not found", rule.ID)
+	}
+	for i, existing := range c.ProxyRules {
+		existing.Protocol = normalizeProxyProtocol(existing.Protocol)
+		if i != idx && existing.Protocol == rule.Protocol && existing.VM == rule.VM && existing.Port == rule.Port {
+			return fmt.Errorf("%s proxy rule for %s:%d already exists", rule.Protocol, rule.VM, rule.Port)
+		}
+		if i != idx && rule.Protocol == "ssh" && existing.Protocol == "ssh" && existing.HostPort == rule.HostPort {
+			return fmt.Errorf("ssh proxy rule for host port %d already exists", rule.HostPort)
+		}
+	}
+	c.ProxyRules[idx] = rule
+	return nil
+}
+
+func (c *Config) DeleteProxyRule(id string) error {
+	_, idx := c.GetProxyRule(id)
+	if idx == -1 {
+		return fmt.Errorf("proxy rule %q not found", id)
+	}
+	c.ProxyRules = append(c.ProxyRules[:idx], c.ProxyRules[idx+1:]...)
+	return nil
+}
+
 func DefaultConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -399,6 +529,15 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.VMGroups == nil {
 		cfg.VMGroups = make(map[string]string)
+	}
+	if cfg.VMTemplates == nil {
+		cfg.VMTemplates = make(map[string]bool)
+	}
+	if cfg.ProxyRules == nil {
+		cfg.ProxyRules = []ProxyRule{}
+	}
+	for i := range cfg.ProxyRules {
+		cfg.ProxyRules[i].Protocol = normalizeProxyProtocol(cfg.ProxyRules[i].Protocol)
 	}
 	if cfg.LLM == nil {
 		cfg.LLM = &LLMConfig{
@@ -486,6 +625,10 @@ func CreateDefault(path string) (*Config, error) {
 		CloudInitDir: cloudInitDir,
 		Username:     "admin",
 		Password:     hashed,
+		Groups:       []string{},
+		VMGroups:     make(map[string]string),
+		VMTemplates:  make(map[string]bool),
+		ProxyRules:   []ProxyRule{},
 	}
 	if err := cfg.Save(path); err != nil {
 		return nil, err

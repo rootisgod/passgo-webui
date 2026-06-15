@@ -221,6 +221,129 @@ func (s *Server) handleCloneVM(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"name": destName, "message": "VM clone started"})
 }
 
+type vmTemplatesResponse struct {
+	Templates map[string]bool `json:"templates"`
+}
+
+const templateProtectedMessage = "remove template tag before %s this VM"
+
+func (s *Server) handleListVMTemplates(w http.ResponseWriter, r *http.Request) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	if s.cfg.VMTemplates == nil {
+		s.cfg.VMTemplates = make(map[string]bool)
+	}
+	if s.cleanupMissingVMTemplatesLocked() {
+		if err := s.cfg.Save(s.configPath); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, vmTemplatesResponse{Templates: s.cfg.VMTemplates})
+}
+
+type setVMTemplateRequest struct {
+	Template *bool `json:"template"`
+}
+
+func (s *Server) handleSetVMTemplate(w http.ResponseWriter, r *http.Request) {
+	name, ok := validVMName(w, r, "name")
+	if !ok {
+		return
+	}
+
+	var req setVMTemplateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Template == nil {
+		writeError(w, http.StatusBadRequest, "template is required")
+		return
+	}
+
+	vms, err := s.mp.ListVMs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var vmState string
+	for _, vm := range vms {
+		if vm.Name == name {
+			vmState = vm.State
+			break
+		}
+	}
+	if vmState == "" {
+		writeError(w, http.StatusNotFound, "vm not found")
+		return
+	}
+	if vmState != "Stopped" {
+		writeError(w, http.StatusConflict, "vm must be stopped to update template tag")
+		return
+	}
+
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+
+	if s.cfg.VMTemplates == nil {
+		s.cfg.VMTemplates = make(map[string]bool)
+	}
+	if *req.Template {
+		s.cfg.VMTemplates[name] = true
+	} else {
+		delete(s.cfg.VMTemplates, name)
+	}
+	if err := s.cfg.Save(s.configPath); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save config")
+		return
+	}
+	s.eventLog.EmitHTTPEvent(r, "config", "set_template", name, "success", fmt.Sprintf("template=%t", *req.Template))
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "template": *req.Template})
+}
+
+func (s *Server) isVMTemplate(name string) bool {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.cfg.VMTemplates != nil && s.cfg.VMTemplates[name]
+}
+
+func (s *Server) templateProtectedError(action string) string {
+	return fmt.Sprintf(templateProtectedMessage, action)
+}
+
+func (s *Server) templateNames() map[string]bool {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	templates := make(map[string]bool, len(s.cfg.VMTemplates))
+	for name, tagged := range s.cfg.VMTemplates {
+		if tagged {
+			templates[name] = true
+		}
+	}
+	return templates
+}
+
+func (s *Server) cleanupMissingVMTemplatesLocked() bool {
+	if len(s.cfg.VMTemplates) == 0 {
+		return false
+	}
+	vms, err := s.mp.ListVMs()
+	if err != nil {
+		return false
+	}
+	vmNames := make(map[string]bool, len(vms))
+	for _, vm := range vms {
+		vmNames[vm.Name] = true
+	}
+	changed := false
+	for name := range s.cfg.VMTemplates {
+		if !vmNames[name] {
+			delete(s.cfg.VMTemplates, name)
+			changed = true
+		}
+	}
+	return changed
+}
+
 // nextCloneName finds the next available clone name like "source-clone1", "source-clone2", etc.
 func (s *Server) nextCloneName(source string) string {
 	vms, _ := s.mp.ListVMs()
@@ -252,6 +375,12 @@ func (s *Server) handleDismissLaunch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStartVM(w http.ResponseWriter, r *http.Request) {
 	name, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.isVMTemplate(name) {
+		msg := s.templateProtectedError("starting")
+		s.eventLog.EmitHTTPEvent(r, "vm", "start", name, "failed", msg)
+		writeError(w, http.StatusConflict, msg)
 		return
 	}
 	if err := s.mp.StartVM(name); err != nil {
@@ -301,6 +430,12 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.isVMTemplate(name) {
+		msg := s.templateProtectedError("deleting")
+		s.eventLog.EmitHTTPEvent(r, "vm", "delete", name, "failed", msg)
+		writeError(w, http.StatusConflict, msg)
+		return
+	}
 	var req deleteVMRequest
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -337,13 +472,39 @@ func (s *Server) handleRecoverVM(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStartAll(w http.ResponseWriter, r *http.Request) {
-	if err := s.mp.StartAll(); err != nil {
+	vms, err := s.mp.ListVMs()
+	if err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "success", "")
-	writeMessage(w, "all stopped VMs started")
+
+	templates := s.templateNames()
+	var started, skipped int
+	var errs []string
+	for _, vm := range vms {
+		if vm.State != "Stopped" {
+			continue
+		}
+		if templates[vm.Name] {
+			skipped++
+			continue
+		}
+		if err := s.mp.StartVM(vm.Name); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", vm.Name, err))
+		} else {
+			started++
+		}
+	}
+	detail := fmt.Sprintf("started=%d skipped_templates=%d", started, skipped)
+	if len(errs) > 0 {
+		msg := "start-all errors: " + strings.Join(errs, "; ")
+		s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "failed", detail+": "+msg)
+		writeError(w, http.StatusInternalServerError, msg)
+		return
+	}
+	s.eventLog.EmitHTTPEvent(r, "vm", "start_all", "", "success", detail)
+	writeMessage(w, "eligible stopped VMs started")
 }
 
 func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {

@@ -57,6 +57,9 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
+		if s.isVMTemplate(args.Name) {
+			return toolError(fmt.Errorf("%s", s.templateProtectedError("starting"))), nil
+		}
 		if err := s.mp.StartVM(args.Name); err != nil {
 			return toolError(err), nil
 		}
@@ -93,6 +96,9 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		}
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
+		}
+		if s.isVMTemplate(args.Name) {
+			return toolError(fmt.Errorf("%s", s.templateProtectedError("deleting"))), nil
 		}
 		if err := s.mp.DeleteVM(args.Name, args.Purge); err != nil {
 			return toolError(err), nil

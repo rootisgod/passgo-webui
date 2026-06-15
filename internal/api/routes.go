@@ -30,12 +30,13 @@ type Server struct {
 	// write would need a deep Clone() of Config to avoid racing map mutations
 	// against json.Marshal, and on a homelab the ms-scale save is not a
 	// contention point worth that complexity.
-	cfgMu              sync.Mutex
-	ansibleRunner      ansibleRunner
-	scheduler          *scheduler
-	loginLimiter       *loginRateLimiter
-	apiLimiter         *apiRateLimiter
-	eventLog           *EventLog
+	cfgMu         sync.Mutex
+	ansibleRunner ansibleRunner
+	scheduler     *scheduler
+	loginLimiter  *loginRateLimiter
+	apiLimiter    *apiRateLimiter
+	eventLog      *EventLog
+	tcpForwards   *tcpForwardManager
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -54,6 +55,7 @@ func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logg
 		loginLimiter:       newLoginRateLimiter(5, time.Minute),
 		apiLimiter:         newAPIRateLimiter(30, time.Minute, cfg.TrustProxy),
 	}
+	s.tcpForwards = newTCPForwardManager(s)
 	// Wire up ansible queue: when a queued run needs to start, use the server's startPlaybookRun
 	s.ansibleRunner.startFunc = s.startPlaybookRun
 	s.scheduler = newScheduler(s)
@@ -71,11 +73,13 @@ func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logg
 	}
 	s.ansibleRunner.eventLog = el
 
+	s.reconcileTCPForwards()
 	return s
 }
 
 // Shutdown cleans up server resources including persistent PTY sessions.
 func (s *Server) Shutdown() {
+	s.shutdownTCPForwards()
 	s.scheduler.stop()
 	s.ptySessions.shutdown()
 	s.sessions.Shutdown()
@@ -121,12 +125,20 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/vms/stop-all", s.handleStopAll)
 	mux.HandleFunc("POST /api/v1/vms/purge", s.handlePurge)
 	mux.HandleFunc("POST /api/v1/vms/{name}/clone", s.handleCloneVM)
+	mux.HandleFunc("GET /api/v1/vm-templates", s.handleListVMTemplates)
+	mux.HandleFunc("PUT /api/v1/vms/{name}/template", s.handleSetVMTemplate)
+	mux.HandleFunc("GET /api/v1/proxy-rules", s.handleListProxyRules)
+	mux.HandleFunc("POST /api/v1/proxy-rules", s.handleCreateProxyRule)
+	mux.HandleFunc("PUT /api/v1/proxy-rules/{id}", s.handleUpdateProxyRule)
+	mux.HandleFunc("DELETE /api/v1/proxy-rules/{id}", s.handleDeleteProxyRule)
+	mux.HandleFunc("/api/v1/proxy/vms/", s.handleVMHTTPProxy)
 	mux.HandleFunc("POST /api/v1/vms/{name}/exec", s.handleExecInVM)
 	mux.HandleFunc("GET /api/v1/launches", s.handleListLaunches)
 	mux.HandleFunc("DELETE /api/v1/launches/{name}", s.handleDismissLaunch)
 	mux.HandleFunc("GET /api/v1/vms/{name}/config", s.handleGetVMConfig)
 	mux.HandleFunc("PUT /api/v1/vms/{name}/config", s.handleResizeVM)
 	mux.HandleFunc("GET /api/v1/vms/{name}/cloud-init/status", s.handleCloudInitStatus)
+	mux.HandleFunc("GET /api/v1/vms/{name}/vnc", s.handleVMVNC)
 
 	// File transfer
 	mux.HandleFunc("GET /api/v1/vms/{name}/files", s.handleDownloadFile)

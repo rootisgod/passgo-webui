@@ -209,6 +209,12 @@ func (sc *scheduler) execute(sched config.Schedule, vmGroups map[string]string) 
 	switch sched.Action {
 	case "start":
 		for _, vm := range targets {
+			if sc.server.isVMTemplate(vm) {
+				msg := sc.server.templateProtectedError("starting")
+				sc.server.logger.Warn("scheduled start skipped protected template", "vm", vm, "schedule", sched.ID)
+				errors = append(errors, vm+": "+msg)
+				continue
+			}
 			if err := sc.server.mp.StartVM(vm); err != nil {
 				sc.server.logger.Error("scheduled start failed", "vm", vm, "schedule", sched.ID, "err", err)
 				errors = append(errors, vm+": "+err.Error())
