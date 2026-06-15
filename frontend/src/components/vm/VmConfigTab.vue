@@ -26,6 +26,7 @@ const origDiskGB = ref(8)
 
 const isStopped = computed(() => vmData.value?.state === 'Stopped')
 const isDeleted = computed(() => vmData.value?.state === 'Deleted')
+const isTemplate = computed(() => store.selectedNode ? store.isTemplate(store.selectedNode) : false)
 const currentDiskGB = computed(() => origDiskGB.value)
 
 const hasChanges = computed(() =>
@@ -110,6 +111,12 @@ async function save() {
       </div>
 
       <!-- State warning -->
+      <div v-else-if="isTemplate" class="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-5">
+        <AlertTriangle class="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+        <p class="text-xs text-amber-300">Remove the template tag to make configuration changes.</p>
+      </div>
+
+      <!-- State warning -->
       <div v-else-if="!isStopped" class="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-5">
         <AlertTriangle class="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
         <p class="text-xs text-amber-300">CPU and memory changes require the VM to be stopped. Disk can be resized while running.</p>
@@ -123,7 +130,7 @@ async function save() {
             v-model.number="cpus"
             type="number"
             :min="1"
-            :disabled="!isStopped || isDeleted"
+            :disabled="!isStopped || isDeleted || isTemplate"
             class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <p v-if="hostRes" class="text-xs text-[var(--text-secondary)] mt-1">Host has {{ hostRes.total_cpus }} cores</p>
@@ -138,7 +145,7 @@ async function save() {
             type="number"
             :min="256"
             :step="256"
-            :disabled="!isStopped || isDeleted"
+            :disabled="!isStopped || isDeleted || isTemplate"
             class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <p v-if="hostRes" class="text-xs text-[var(--text-secondary)] mt-1">Host has {{ hostRes.total_memory_mb }} MB total</p>
@@ -152,7 +159,7 @@ async function save() {
             v-model.number="diskGB"
             type="number"
             :min="currentDiskGB"
-            :disabled="isDeleted"
+            :disabled="isDeleted || isTemplate"
             class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <p class="text-xs text-[var(--text-secondary)] mt-1">Can only increase. Current: {{ currentDiskGB }} GB</p>
@@ -162,7 +169,7 @@ async function save() {
 
       <button
         @click="save"
-        :disabled="!hasChanges || saving || isDeleted"
+        :disabled="!hasChanges || saving || isDeleted || isTemplate"
         class="px-4 py-2 bg-[var(--accent)] text-white text-sm rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
       >
         <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />

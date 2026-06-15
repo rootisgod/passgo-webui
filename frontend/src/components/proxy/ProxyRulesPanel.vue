@@ -5,7 +5,7 @@ import { useToastStore } from '../../stores/toastStore.js'
 import { usePolling } from '../../composables/usePolling.js'
 import * as api from '../../api/client.js'
 import ConfirmModal from '../modals/ConfirmModal.vue'
-import { Copy, ExternalLink, Network, Plus, RefreshCw, Save, Terminal, Trash2, X } from 'lucide-vue-next'
+import { Clock, Copy, ExternalLink, KeyRound, Network, Plus, RefreshCw, Save, Shield, Terminal, Trash2, X } from 'lucide-vue-next'
 
 const props = defineProps({
   vmName: { type: String, default: '' },
@@ -20,27 +20,44 @@ const loading = ref(false)
 const showForm = ref(false)
 const saving = ref(false)
 const confirmAction = ref(null)
+const oneTimeAccess = ref({})
 
 const formVm = ref('')
 const formProtocol = ref('http')
 const formPort = ref(5173)
 const formHostPort = ref(2222)
+const formAutoHostPort = ref(true)
+const formBindAddress = ref('0.0.0.0')
 const formLabel = ref('')
+const formOwner = ref('')
+const formTTL = ref('none')
 const formEnabled = ref(true)
 
 const title = computed(() => props.vmName ? 'Proxy Ports' : 'Proxies')
-const selectableVms = computed(() => store.vms.filter(vm => vm.state !== 'Deleted'))
+const selectedIsTemplate = computed(() => props.vmName ? store.isTemplate(props.vmName) : false)
+const selectableVms = computed(() => store.vms.filter(vm => vm.state !== 'Deleted' && !store.isTemplate(vm.name)))
 const hasRules = computed(() => rules.value.length > 0)
 const isSSHForm = computed(() => formProtocol.value === 'ssh')
 const targetPortLabel = computed(() => isSSHForm.value ? 'VM SSH Port' : 'HTTP/WS Port')
+const ttlOptions = [
+  { value: 'none', label: 'No expiry' },
+  { value: '60', label: '1 hour' },
+  { value: '240', label: '4 hours' },
+  { value: '1440', label: '1 day' },
+]
+const bindOptions = [
+  { value: '0.0.0.0', label: 'LAN / all' },
+  { value: '127.0.0.1', label: 'Local only' },
+]
 const canCreate = computed(() => {
   const vm = props.vmName || formVm.value
   const targetPort = Number(formPort.value)
   const hostPort = Number(formHostPort.value)
   return !!vm &&
+    !selectedIsTemplate.value &&
     targetPort >= 1 &&
     targetPort <= 65535 &&
-    (!isSSHForm.value || (hostPort >= 1 && hostPort <= 65535))
+    (!isSSHForm.value || formAutoHostPort.value || (hostPort >= 1 && hostPort <= 65535))
 })
 
 async function loadRules() {
@@ -61,7 +78,11 @@ function startForm() {
   formProtocol.value = 'http'
   formPort.value = 5173
   formHostPort.value = 2222
+  formAutoHostPort.value = true
+  formBindAddress.value = '0.0.0.0'
   formLabel.value = ''
+  formOwner.value = ''
+  formTTL.value = 'none'
   formEnabled.value = true
 }
 
@@ -79,13 +100,26 @@ async function createRule() {
       protocol: formProtocol.value,
       port: Number(formPort.value),
       label: formLabel.value.trim(),
+      owner: formOwner.value.trim(),
       enabled: formEnabled.value,
     }
-    if (isSSHForm.value) {
-      payload.host_port = Number(formHostPort.value)
+    if (formTTL.value !== 'none') {
+      payload.ttl_minutes = Number(formTTL.value)
     }
-    await api.createProxyRule(payload)
-    const access = isSSHForm.value ? `host port ${Number(formHostPort.value)}` : `${vm}:${Number(formPort.value)}`
+    if (isSSHForm.value) {
+      payload.auto_host_port = formAutoHostPort.value
+      if (!formAutoHostPort.value) {
+        payload.host_port = Number(formHostPort.value)
+      }
+      payload.bind_address = formBindAddress.value
+    } else {
+      payload.generate_token = true
+    }
+    const created = await api.createProxyRule(payload)
+    if (created?.id && created?.proxy_url) {
+      oneTimeAccess.value = { ...oneTimeAccess.value, [created.id]: created.proxy_url }
+    }
+    const access = isSSHForm.value ? `host port ${created?.host_port || Number(formHostPort.value)}` : `${vm}:${Number(formPort.value)}`
     toasts.success(`Proxy rule added for ${access}`)
     showForm.value = false
     await loadRules()
@@ -93,6 +127,16 @@ async function createRule() {
     toasts.error(e.message)
   } finally {
     saving.value = false
+  }
+}
+
+async function cleanupExpired() {
+  try {
+    const result = await api.cleanupProxyRules()
+    toasts.success(`Removed ${result.removed || 0} expired rules`)
+    await loadRules()
+  } catch (e) {
+    toasts.error(e.message)
   }
 }
 
@@ -138,8 +182,9 @@ async function copyURL(rule) {
 }
 
 function openURL(rule) {
-  if (isSSHRule(rule) || !rule.proxy_url) return
-  window.open(rule.proxy_url, '_blank', 'noopener,noreferrer')
+  const value = accessValue(rule)
+  if (isSSHRule(rule) || !value) return
+  window.open(value, '_blank', 'noopener,noreferrer')
 }
 
 function statusClass(status) {
@@ -178,10 +223,11 @@ function isSSHRule(rule) {
 }
 
 function accessValue(rule) {
-  return isSSHRule(rule) ? rule.ssh_command : rule.proxy_url
+  return oneTimeAccess.value[rule.id] || (isSSHRule(rule) ? rule.ssh_command : rule.proxy_url)
 }
 
 function accessDisplay(rule) {
+  if (oneTimeAccess.value[rule.id]) return shortURL(oneTimeAccess.value[rule.id])
   if (isSSHRule(rule)) return rule.ssh_command || ''
   return shortURL(rule.proxy_url)
 }
@@ -193,6 +239,21 @@ function destinationLabel(rule) {
 function listenLabel(rule) {
   if (!isSSHRule(rule)) return ''
   return rule.listen_address || (rule.host_port ? `:${rule.host_port}` : '')
+}
+
+function exposureLabel(rule) {
+  if (isSSHRule(rule)) {
+    return rule.bind_address === '127.0.0.1' ? 'local' : 'lan'
+  }
+  return rule.token_required ? `token ${rule.token_prefix || ''}`.trim() : 'session'
+}
+
+function accessMeta(rule) {
+  const pieces = []
+  if (rule.owner) pieces.push(rule.owner)
+  if (rule.access_count) pieces.push(`${rule.access_count} hits`)
+  if (rule.last_accessed_at) pieces.push(`last ${formatExpiry(rule.last_accessed_at)}`)
+  return pieces.join(' · ')
 }
 
 function formatExpiry(value) {
@@ -210,9 +271,11 @@ watch(() => props.vmName, () => {
 watch(formProtocol, (protocol) => {
   if (protocol === 'ssh' && Number(formPort.value) === 5173) {
     formPort.value = 22
+    formTTL.value = '240'
   }
   if (protocol === 'http' && Number(formPort.value) === 22) {
     formPort.value = 5173
+    if (formTTL.value === '240') formTTL.value = 'none'
   }
 })
 
@@ -238,8 +301,15 @@ usePolling(loadRules, 5000)
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
         </button>
         <button
+          class="p-2 rounded hover:bg-[var(--bg-hover)] transition-colors text-[var(--text-secondary)]"
+          title="Cleanup expired"
+          @click="cleanupExpired"
+        >
+          <Clock class="w-4 h-4" />
+        </button>
+        <button
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-[var(--accent)] hover:bg-blue-600 transition-colors disabled:opacity-40"
-          :disabled="showForm"
+          :disabled="showForm || selectedIsTemplate"
           @click="startForm"
         >
           <Plus class="w-3.5 h-3.5" />
@@ -249,8 +319,11 @@ usePolling(loadRules, 5000)
     </div>
 
     <div class="flex-1 overflow-auto" :class="embedded ? '' : 'p-6'">
+      <div v-if="selectedIsTemplate" class="text-sm text-[var(--text-secondary)] mb-4">
+        Remove the template tag to add proxy rules.
+      </div>
       <div v-if="showForm" class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4 mb-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-8 gap-3">
           <div>
             <label class="block text-xs text-[var(--text-secondary)] mb-1">Protocol</label>
             <div class="inline-flex w-full rounded border border-[var(--border)] overflow-hidden bg-[var(--bg-primary)]">
@@ -293,13 +366,49 @@ usePolling(loadRules, 5000)
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
             />
           </div>
-          <div v-if="isSSHForm">
+          <div v-if="isSSHForm && !formAutoHostPort">
             <label class="block text-xs text-[var(--text-secondary)] mb-1">Listen Port</label>
             <input
               v-model.number="formHostPort"
               type="number"
               min="1"
               max="65535"
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+            />
+          </div>
+          <label v-if="isSSHForm" class="flex items-end gap-2 text-sm text-[var(--text-primary)] pb-1.5 cursor-pointer">
+            <input
+              v-model="formAutoHostPort"
+              type="checkbox"
+              class="w-4 h-4 rounded border-[var(--border)] bg-[var(--bg-primary)] text-[var(--accent)] focus:ring-0 focus:ring-offset-0"
+            />
+            Auto port
+          </label>
+          <div v-if="isSSHForm">
+            <label class="block text-xs text-[var(--text-secondary)] mb-1">Bind</label>
+            <select
+              v-model="formBindAddress"
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+            >
+              <option v-for="option in bindOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-[var(--text-secondary)] mb-1">TTL</label>
+            <select
+              v-model="formTTL"
+              class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
+            >
+              <option v-for="option in ttlOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-[var(--text-secondary)] mb-1">Owner</label>
+            <input
+              v-model="formOwner"
+              type="text"
+              maxlength="80"
+              placeholder="agent or user"
               class="w-full bg-[var(--bg-primary)] border border-[var(--border)] rounded px-3 py-1.5 text-sm text-[var(--text-primary)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
             />
           </div>
@@ -363,11 +472,18 @@ usePolling(loadRules, 5000)
               <td class="px-4 py-2.5">
                 <div class="font-medium text-[var(--text-primary)]">{{ rule.label || `${rule.vm}:${rule.port}` }}</div>
                 <div class="text-xs text-[var(--text-secondary)] font-mono">{{ rule.vm }}:{{ rule.port }}</div>
+                <div v-if="accessMeta(rule)" class="text-[10px] text-[var(--muted)] mt-0.5">{{ accessMeta(rule) }}</div>
               </td>
               <td class="px-4 py-2.5">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs border border-blue-800 bg-blue-900/20 text-blue-300">
-                  {{ protocolLabel(rule) }}
-                </span>
+                <div class="flex flex-col items-start gap-1">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs border border-blue-800 bg-blue-900/20 text-blue-300">
+                    {{ protocolLabel(rule) }}
+                  </span>
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-gray-700 bg-gray-800/30 text-[var(--text-secondary)]">
+                    <Shield class="w-3 h-3" />
+                    {{ exposureLabel(rule) }}
+                  </span>
+                </div>
               </td>
               <td class="px-4 py-2.5">
                 <button
@@ -378,6 +494,10 @@ usePolling(loadRules, 5000)
                   {{ accessDisplay(rule) }}
                 </button>
                 <span v-else class="text-xs text-[var(--muted)]">not available</span>
+                <div v-if="rule.token_required" class="mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                  <KeyRound class="w-3 h-3" />
+                  {{ rule.token_prefix || 'token protected' }}
+                </div>
               </td>
               <td class="px-4 py-2.5">
                 <div class="font-mono text-xs text-[var(--text-primary)]">{{ destinationLabel(rule) }}</div>

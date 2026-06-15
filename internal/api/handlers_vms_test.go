@@ -143,6 +143,43 @@ func TestTemplateVMProtectedFromStartAndDelete(t *testing.T) {
 	}
 }
 
+func TestTemplateVMProtectedFromAdditionalMutations(t *testing.T) {
+	runner := func(args ...string) (string, error) {
+		t.Fatalf("unexpected multipass call for protected template: %v", args)
+		return "", nil
+	}
+	s := &Server{
+		mp:  multipass.NewClientWithRunner(slog.New(slog.NewTextHandler(io.Discard, nil)), runner),
+		cfg: &config.Config{VMTemplates: map[string]bool{"base": true}},
+	}
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		handler func(http.ResponseWriter, *http.Request)
+	}{
+		{"resize", http.MethodPut, "/api/v1/vms/base/config", `{"disk_gb":20}`, s.handleResizeVM},
+		{"exec", http.MethodPost, "/api/v1/vms/base/exec", `{"command":["true"]}`, s.handleExecInVM},
+		{"shell", http.MethodPost, "/api/v1/vms/base/shell/sessions", ``, s.handleCreateShellSession},
+		{"snapshot", http.MethodPost, "/api/v1/vms/base/snapshots", `{"name":"snap1"}`, s.handleCreateSnapshot},
+		{"mount", http.MethodPost, "/api/v1/vms/base/mounts", `{"source":"/tmp","target":"/mnt/tmp"}`, s.handleAddMount},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.SetPathValue("name", "base")
+			rr := httptest.NewRecorder()
+			tt.handler(rr, req)
+			if rr.Code != http.StatusConflict {
+				t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 func TestStartAllSkipsTemplateVMs(t *testing.T) {
 	const listJSON = `{
 		"list": [

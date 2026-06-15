@@ -73,6 +73,7 @@ func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logg
 	}
 	s.ansibleRunner.eventLog = el
 
+	s.cleanupExpiredProxyRules()
 	s.reconcileTCPForwards()
 	return s
 }
@@ -125,10 +126,12 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/vms/stop-all", s.handleStopAll)
 	mux.HandleFunc("POST /api/v1/vms/purge", s.handlePurge)
 	mux.HandleFunc("POST /api/v1/vms/{name}/clone", s.handleCloneVM)
+	mux.HandleFunc("POST /api/v1/vms/{name}/ssh-key", s.handleInstallSSHKey)
 	mux.HandleFunc("GET /api/v1/vm-templates", s.handleListVMTemplates)
 	mux.HandleFunc("PUT /api/v1/vms/{name}/template", s.handleSetVMTemplate)
 	mux.HandleFunc("GET /api/v1/proxy-rules", s.handleListProxyRules)
 	mux.HandleFunc("POST /api/v1/proxy-rules", s.handleCreateProxyRule)
+	mux.HandleFunc("POST /api/v1/proxy-rules/cleanup", s.handleCleanupProxyRules)
 	mux.HandleFunc("PUT /api/v1/proxy-rules/{id}", s.handleUpdateProxyRule)
 	mux.HandleFunc("DELETE /api/v1/proxy-rules/{id}", s.handleDeleteProxyRule)
 	mux.HandleFunc("/api/v1/proxy/vms/", s.handleVMHTTPProxy)

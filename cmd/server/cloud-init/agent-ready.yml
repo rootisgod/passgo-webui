@@ -1,0 +1,76 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+packages:
+  - openssh-server
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+  - wget
+  - jq
+  - unzip
+  - build-essential
+  - ca-certificates
+  - net-tools
+  - iproute2
+  - dnsutils
+  - htop
+  - tmux
+  - docker.io
+  - xfce4
+  - xfce4-goodies
+  - dbus-x11
+  - xvfb
+  - x11vnc
+
+groups:
+  - docker
+
+system_info:
+  default_user:
+    groups: [adm, cdrom, dip, lxd, sudo, docker]
+
+write_files:
+  - path: /usr/local/bin/passgo-vnc-session
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      export DISPLAY=:0
+      if ! pgrep -f "Xvfb :0" >/dev/null 2>&1; then
+        /usr/bin/Xvfb :0 -screen 0 1280x800x24 -ac +extension GLX +render -noreset >/tmp/passgo-xvfb.log 2>&1 &
+        sleep 2
+      fi
+      if ! pgrep -u ubuntu xfce4-session >/dev/null 2>&1; then
+        /usr/bin/dbus-run-session /usr/bin/startxfce4 >/tmp/passgo-xfce.log 2>&1 &
+        sleep 2
+      fi
+      exec /usr/bin/x11vnc -forever -shared -display :0 -nopw -listen 0.0.0.0 -rfbport 5900
+
+  - path: /etc/systemd/system/passgo-vnc.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=PassGo x11vnc desktop
+      After=multi-user.target
+
+      [Service]
+      Type=simple
+      User=ubuntu
+      Environment=DISPLAY=:0
+      ExecStart=/usr/local/bin/passgo-vnc-session
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl enable --now ssh
+  - systemctl enable --now docker
+  - systemctl enable passgo-vnc.service
+
+final_message: "PassGo agent-ready VM prepared after $UPTIME seconds"

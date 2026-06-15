@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +43,17 @@ type Profile struct {
 	Network   string `json:"network,omitempty"`
 	Playbook  string `json:"playbook,omitempty"`
 	Group     string `json:"group,omitempty"`
+}
+
+var agentReadyProfile = Profile{
+	ID:        "agent-ready",
+	Name:      "Agent-ready Ubuntu",
+	Release:   "24.04",
+	CPUs:      2,
+	MemoryMB:  4096,
+	DiskGB:    20,
+	CloudInit: "builtin:agent-ready.yml",
+	Group:     "agents",
 }
 
 func (p *Profile) Validate() error {
@@ -173,15 +186,21 @@ func (w *Webhook) Validate() error {
 }
 
 type ProxyRule struct {
-	ID        string `json:"id"`
-	VM        string `json:"vm"`
-	Port      int    `json:"port"`
-	Protocol  string `json:"protocol,omitempty"`
-	HostPort  int    `json:"host_port,omitempty"`
-	Label     string `json:"label,omitempty"`
-	Enabled   bool   `json:"enabled"`
-	ExpiresAt string `json:"expires_at,omitempty"`
-	CreatedAt string `json:"created_at"`
+	ID                string `json:"id"`
+	VM                string `json:"vm"`
+	Port              int    `json:"port"`
+	Protocol          string `json:"protocol,omitempty"`
+	HostPort          int    `json:"host_port,omitempty"`
+	BindAddress       string `json:"bind_address,omitempty"`
+	Label             string `json:"label,omitempty"`
+	Owner             string `json:"owner,omitempty"`
+	Enabled           bool   `json:"enabled"`
+	ExpiresAt         string `json:"expires_at,omitempty"`
+	CreatedAt         string `json:"created_at"`
+	AccessTokenHash   string `json:"access_token_hash,omitempty"`
+	AccessTokenPrefix string `json:"access_token_prefix,omitempty"`
+	LastAccessedAt    string `json:"last_accessed_at,omitempty"`
+	AccessCount       int    `json:"access_count,omitempty"`
 }
 
 func (p *ProxyRule) Validate() error {
@@ -205,19 +224,48 @@ func (p *ProxyRule) Validate() error {
 		if p.HostPort != 0 {
 			return fmt.Errorf("host_port is only valid for ssh proxy rules")
 		}
+		if strings.TrimSpace(p.BindAddress) != "" {
+			return fmt.Errorf("bind_address is only valid for ssh proxy rules")
+		}
+		if p.AccessTokenHash != "" {
+			if len(p.AccessTokenHash) != 64 {
+				return fmt.Errorf("access_token_hash must be a SHA-256 hex digest")
+			}
+			if _, err := hex.DecodeString(p.AccessTokenHash); err != nil {
+				return fmt.Errorf("access_token_hash must be a SHA-256 hex digest")
+			}
+		}
 	}
 	if p.Protocol == "ssh" {
 		if p.HostPort < 1 || p.HostPort > 65535 {
 			return fmt.Errorf("host_port must be between 1 and 65535 for ssh proxy rules")
 		}
+		p.BindAddress = normalizeProxyBindAddress(p.BindAddress)
+		if err := validateProxyBindAddress(p.BindAddress); err != nil {
+			return err
+		}
+		if p.AccessTokenHash != "" || p.AccessTokenPrefix != "" {
+			return fmt.Errorf("access tokens are only valid for http proxy rules")
+		}
 	}
 	if len(p.Label) > 80 {
 		return fmt.Errorf("label must be 80 characters or less")
+	}
+	if len(p.Owner) > 80 {
+		return fmt.Errorf("owner must be 80 characters or less")
 	}
 	if p.ExpiresAt != "" {
 		if _, err := time.Parse(time.RFC3339, p.ExpiresAt); err != nil {
 			return fmt.Errorf("expires_at must be RFC3339")
 		}
+	}
+	if p.LastAccessedAt != "" {
+		if _, err := time.Parse(time.RFC3339, p.LastAccessedAt); err != nil {
+			return fmt.Errorf("last_accessed_at must be RFC3339")
+		}
+	}
+	if p.AccessCount < 0 {
+		return fmt.Errorf("access_count must not be negative")
 	}
 	return nil
 }
@@ -231,6 +279,35 @@ func normalizeProxyProtocol(protocol string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(protocol))
 	}
+}
+
+func normalizeProxyBindAddress(address string) string {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "0.0.0.0"
+	}
+	switch strings.ToLower(address) {
+	case "all", "lan":
+		return "0.0.0.0"
+	case "local", "localhost":
+		return "127.0.0.1"
+	default:
+		return address
+	}
+}
+
+func validateProxyBindAddress(address string) error {
+	if address == "" {
+		return nil
+	}
+	if strings.Contains(address, "/") {
+		return fmt.Errorf("bind_address must be an IP address, not a CIDR")
+	}
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return fmt.Errorf("bind_address must be an IP address")
+	}
+	return nil
 }
 
 type Config struct {
@@ -299,6 +376,13 @@ func (c *Config) DeleteProfile(id string) error {
 	}
 	c.Profiles = append(c.Profiles[:idx], c.Profiles[idx+1:]...)
 	return nil
+}
+
+func (c *Config) EnsureBuiltInProfiles() {
+	if existing, _ := c.GetProfile(agentReadyProfile.ID); existing != nil {
+		return
+	}
+	c.Profiles = append(c.Profiles, agentReadyProfile)
 }
 
 func (c *Config) GetSchedules() []Schedule {
@@ -452,6 +536,9 @@ func (c *Config) AddProxyRule(rule ProxyRule) error {
 	}
 	for _, existing := range c.ProxyRules {
 		existing.Protocol = normalizeProxyProtocol(existing.Protocol)
+		if existing.Protocol == "ssh" {
+			existing.BindAddress = normalizeProxyBindAddress(existing.BindAddress)
+		}
 		if existing.Protocol == rule.Protocol && existing.VM == rule.VM && existing.Port == rule.Port {
 			return fmt.Errorf("%s proxy rule for %s:%d already exists", rule.Protocol, rule.VM, rule.Port)
 		}
@@ -473,6 +560,9 @@ func (c *Config) UpdateProxyRule(rule ProxyRule) error {
 	}
 	for i, existing := range c.ProxyRules {
 		existing.Protocol = normalizeProxyProtocol(existing.Protocol)
+		if existing.Protocol == "ssh" {
+			existing.BindAddress = normalizeProxyBindAddress(existing.BindAddress)
+		}
 		if i != idx && existing.Protocol == rule.Protocol && existing.VM == rule.VM && existing.Port == rule.Port {
 			return fmt.Errorf("%s proxy rule for %s:%d already exists", rule.Protocol, rule.VM, rule.Port)
 		}
@@ -538,6 +628,9 @@ func Load(path string) (*Config, error) {
 	}
 	for i := range cfg.ProxyRules {
 		cfg.ProxyRules[i].Protocol = normalizeProxyProtocol(cfg.ProxyRules[i].Protocol)
+		if cfg.ProxyRules[i].Protocol == "ssh" {
+			cfg.ProxyRules[i].BindAddress = normalizeProxyBindAddress(cfg.ProxyRules[i].BindAddress)
+		}
 	}
 	if cfg.LLM == nil {
 		cfg.LLM = &LLMConfig{
@@ -550,6 +643,7 @@ func Load(path string) (*Config, error) {
 			cfg.PlaybooksDir = filepath.Join(home, ".passgo-web", "playbooks")
 		}
 	}
+	cfg.EnsureBuiltInProfiles()
 	if cfg.VMDefaults == nil {
 		cfg.VMDefaults = &VMDefaults{CPUs: 2, MemoryMB: 1024, DiskGB: 8}
 	}
@@ -628,6 +722,7 @@ func CreateDefault(path string) (*Config, error) {
 		Groups:       []string{},
 		VMGroups:     make(map[string]string),
 		VMTemplates:  make(map[string]bool),
+		Profiles:     []Profile{agentReadyProfile},
 		ProxyRules:   []ProxyRule{},
 	}
 	if err := cfg.Save(path); err != nil {

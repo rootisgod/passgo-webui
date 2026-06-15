@@ -26,7 +26,7 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 		VMTemplates:  map[string]bool{"base-image": true},
 		ProxyRules: []ProxyRule{
 			{ID: "px_dev", VM: "web-01", Port: 3000, Protocol: "http", Label: "dev app", Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"},
-			{ID: "px_ssh", VM: "web-01", Port: 22, Protocol: "ssh", HostPort: 2222, Label: "ssh", Enabled: true, CreatedAt: "2026-06-15T12:01:00Z"},
+			{ID: "px_ssh", VM: "web-01", Port: 22, Protocol: "ssh", HostPort: 2222, BindAddress: "0.0.0.0", Label: "ssh", Enabled: true, CreatedAt: "2026-06-15T12:01:00Z"},
 		},
 		LLM: &LLMConfig{
 			BaseURL: "https://api.example.com",
@@ -62,8 +62,10 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(got.ProxyRules, orig.ProxyRules) {
 		t.Errorf("ProxyRules: got %v, want %v", got.ProxyRules, orig.ProxyRules)
 	}
-	if !reflect.DeepEqual(got.Profiles, orig.Profiles) {
-		t.Errorf("Profiles: got %+v, want %+v", got.Profiles, orig.Profiles)
+	wantProfiles := append([]Profile(nil), orig.Profiles...)
+	wantProfiles = append(wantProfiles, agentReadyProfile)
+	if !reflect.DeepEqual(got.Profiles, wantProfiles) {
+		t.Errorf("Profiles: got %+v, want %+v", got.Profiles, wantProfiles)
 	}
 	if got.LLM == nil || got.LLM.Model != "gpt-4" {
 		t.Errorf("LLM: got %+v", got.LLM)
@@ -167,6 +169,9 @@ func TestLoad_FillsDefaults(t *testing.T) {
 	}
 	if c.ProxyRules == nil {
 		t.Error("ProxyRules should default to empty slice, not nil")
+	}
+	if p, _ := c.GetProfile("agent-ready"); p == nil {
+		t.Error("agent-ready profile should be available by default")
 	}
 }
 
@@ -474,13 +479,16 @@ func TestProxyRuleValidate(t *testing.T) {
 	}{
 		{"valid", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}, true},
 		{"valid ssh", ProxyRule{ID: "px_ssh", VM: "dev-vm", Port: 22, Protocol: "ssh", HostPort: 2222, Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}, true},
+		{"valid token hash", ProxyRule{ID: "px_token", VM: "dev-vm", Port: 3000, Protocol: "http", AccessTokenHash: strings.Repeat("a", 64), Enabled: true, CreatedAt: "2026-06-15T12:00:00Z"}, true},
 		{"empty id", ProxyRule{VM: "dev-vm", Port: 3000}, false},
 		{"bad id", ProxyRule{ID: "bad id", VM: "dev-vm", Port: 3000}, false},
 		{"empty vm", ProxyRule{ID: "px_ok", Port: 3000}, false},
 		{"bad port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 0}, false},
 		{"bad protocol", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Protocol: "smtp"}, false},
 		{"ssh missing host port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 22, Protocol: "ssh"}, false},
+		{"ssh bad bind", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 22, Protocol: "ssh", HostPort: 2222, BindAddress: "example.com"}, false},
 		{"http host port", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Protocol: "http", HostPort: 2222}, false},
+		{"bad token hash", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, Protocol: "http", AccessTokenHash: "secret"}, false},
 		{"bad expiry", ProxyRule{ID: "px_ok", VM: "dev-vm", Port: 3000, ExpiresAt: "tomorrow"}, false},
 	}
 	for _, tc := range cases {

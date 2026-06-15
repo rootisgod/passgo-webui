@@ -93,6 +93,9 @@ func (s *Server) handleCreateShellSession(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, name, "opening shells on") {
+		return
+	}
 	_, id, err := s.ptySessions.create(name)
 	if err != nil {
 		s.logger.Error("failed to create shell session", "err", err, "vm", name)

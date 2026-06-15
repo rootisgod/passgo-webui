@@ -28,6 +28,9 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, vmName, "creating snapshots for") {
+		return
+	}
 	var req createSnapshotRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		writeError(w, http.StatusBadRequest, "snapshot name is required")
@@ -47,6 +50,9 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, vmName, "restoring snapshots for") {
+		return
+	}
 	snap, ok := validSnapshotName(w, r, "snap")
 	if !ok {
 		return
@@ -63,6 +69,9 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	vmName, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.guardTemplateMutation(w, r, vmName, "deleting snapshots from") {
 		return
 	}
 	snap, ok := validSnapshotName(w, r, "snap")

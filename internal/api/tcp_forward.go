@@ -93,11 +93,11 @@ func (m *tcpForwardManager) reconcile() {
 	}
 
 	for id, rule := range wanted {
-		listenAddr := net.JoinHostPort("", strconv.Itoa(rule.HostPort))
+		listenAddr := net.JoinHostPort(rule.BindAddress, strconv.Itoa(rule.HostPort))
 		listener, err := net.Listen("tcp", listenAddr)
 		if err != nil {
 			m.errors[id] = err.Error()
-			m.logWarn("ssh proxy listen failed", "rule", id, "host_port", rule.HostPort, "err", err)
+			m.logWarn("ssh proxy listen failed", "rule", id, "bind", rule.BindAddress, "host_port", rule.HostPort, "err", err)
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (m *tcpForwardManager) reconcile() {
 		}
 		m.forwards[id] = forward
 		delete(m.errors, id)
-		m.logInfo("ssh proxy listening", "rule", id, "vm", rule.VM, "target_port", rule.Port, "host_port", rule.HostPort)
+		m.logInfo("ssh proxy listening", "rule", id, "vm", rule.VM, "target_port", rule.Port, "bind", rule.BindAddress, "host_port", rule.HostPort)
 		go forward.serve()
 	}
 }
@@ -187,15 +187,19 @@ func (f *tcpForward) handle(client net.Conn) {
 	target, err := f.manager.server.tcpTargetAddress(f.rule)
 	if err != nil {
 		f.manager.logWarn("ssh proxy target unavailable", "rule", f.rule.ID, "vm", f.rule.VM, "err", err)
+		f.manager.server.emitSSHProxyEvent(f.rule, client.RemoteAddr().String(), "failed", err.Error())
 		return
 	}
 
 	upstream, err := net.DialTimeout("tcp", target, 10*time.Second)
 	if err != nil {
 		f.manager.logWarn("ssh proxy dial failed", "rule", f.rule.ID, "target", target, "err", err)
+		f.manager.server.emitSSHProxyEvent(f.rule, client.RemoteAddr().String(), "failed", err.Error())
 		return
 	}
 	defer upstream.Close()
+	f.manager.server.recordProxyAccess(f.rule.ID)
+	f.manager.server.emitSSHProxyEvent(f.rule, client.RemoteAddr().String(), "success", "target="+target)
 
 	done := make(chan struct{}, 2)
 	go func() {
@@ -238,11 +242,26 @@ func (s *Server) tcpTargetAddress(rule config.ProxyRule) (string, error) {
 	return net.JoinHostPort(ip.String(), strconv.Itoa(rule.Port)), nil
 }
 
+func (s *Server) emitSSHProxyEvent(rule config.ProxyRule, source, result, detail string) {
+	if s == nil || s.eventLog == nil {
+		return
+	}
+	if source != "" {
+		if detail != "" {
+			detail = "source=" + source + " " + detail
+		} else {
+			detail = "source=" + source
+		}
+	}
+	s.eventLog.EmitEvent("proxy", "ssh_connect", "user", proxyRuleResource(rule), result, detail)
+}
+
 func sameTCPForwardRule(a, b config.ProxyRule) bool {
 	return a.ID == b.ID &&
 		a.VM == b.VM &&
 		a.Port == b.Port &&
 		a.HostPort == b.HostPort &&
+		a.BindAddress == b.BindAddress &&
 		a.Enabled == b.Enabled &&
 		a.ExpiresAt == b.ExpiresAt &&
 		proxyRuleProtocol(a) == proxyRuleProtocol(b)

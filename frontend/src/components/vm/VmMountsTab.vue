@@ -22,6 +22,7 @@ const hostHomePath = ref('/')
 
 const vm = computed(() => store.selectedVm)
 const isRunning = computed(() => vm.value?.state === 'Running')
+const isTemplate = computed(() => vm.value ? store.isTemplate(vm.value.name) : false)
 const vmFetcher = (path) => api.listFiles(store.selectedNode, path)
 const hostFetcher = (path) => api.listHostFiles(path)
 const vmCreateFolder = (fullPath) => api.createVmFolder(store.selectedNode, fullPath)
@@ -107,11 +108,12 @@ onMounted(loadMounts)
   <div class="p-6">
     <div class="flex items-center justify-between mb-4">
       <h3 class="text-lg font-semibold">Mounts</h3>
-      <ActionButton label="Add Mount" :icon="Plus" variant="success" @click="showAddForm = !showAddForm" />
+      <ActionButton label="Add Mount" :icon="Plus" variant="success" :disabled="isTemplate" @click="showAddForm = !showAddForm" />
     </div>
 
     <!-- Add mount form -->
-    <div v-if="showAddForm" class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4 mb-4">
+    <div v-if="isTemplate" class="text-sm text-[var(--text-secondary)] mb-4">Remove the template tag to change mounts.</div>
+    <div v-if="showAddForm && !isTemplate" class="bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] p-4 mb-4">
       <div class="grid grid-cols-2 gap-4 mb-3">
         <div>
           <label class="block text-xs text-[var(--text-secondary)] mb-1">Host path</label>
@@ -200,6 +202,8 @@ onMounted(loadMounts)
                 <button
                   class="p-1 rounded hover:bg-[var(--danger)] transition-colors"
                   title="Remove"
+                  :disabled="isTemplate"
+                  :class="isTemplate ? 'opacity-40 cursor-not-allowed' : ''"
                   @click="confirmRemove(mount.target_path)"
                 >
                   <Trash2 class="w-4 h-4" />

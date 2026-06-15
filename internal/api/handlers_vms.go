@@ -310,6 +310,16 @@ func (s *Server) templateProtectedError(action string) string {
 	return fmt.Sprintf(templateProtectedMessage, action)
 }
 
+func (s *Server) guardTemplateMutation(w http.ResponseWriter, r *http.Request, name, action string) bool {
+	if !s.isVMTemplate(name) {
+		return false
+	}
+	msg := s.templateProtectedError(action)
+	s.eventLog.EmitHTTPEvent(r, "vm", action, name, "failed", msg)
+	writeError(w, http.StatusConflict, msg)
+	return true
+}
+
 func (s *Server) templateNames() map[string]bool {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
@@ -412,6 +422,9 @@ func (s *Server) handleSuspendVM(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, name, "suspending") {
+		return
+	}
 	if err := s.mp.SuspendVM(name); err != nil {
 		s.eventLog.EmitHTTPEvent(r, "vm", "suspend", name, "failed", err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -460,6 +473,9 @@ func (s *Server) handleDeleteVM(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRecoverVM(w http.ResponseWriter, r *http.Request) {
 	name, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.guardTemplateMutation(w, r, name, "recovering") {
 		return
 	}
 	if err := s.mp.RecoverVM(name); err != nil {
@@ -540,6 +556,9 @@ func (s *Server) handleExecInVM(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, name, "executing commands in") {
+		return
+	}
 	var req execRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Command) == 0 {
 		writeError(w, http.StatusBadRequest, "command is required")
@@ -575,6 +594,9 @@ type resizeVMRequest struct {
 func (s *Server) handleResizeVM(w http.ResponseWriter, r *http.Request) {
 	name, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.guardTemplateMutation(w, r, name, "resizing") {
 		return
 	}
 	var req resizeVMRequest

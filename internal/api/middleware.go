@@ -63,6 +63,11 @@ func authMiddleware(sessions *sessionStore, cfg *config.Config, next http.Handle
 			return
 		}
 
+		if isProxyPath(path) && proxyAccessTokenAuthorized(cfg, r, time.Now().UTC()) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Check session cookie
 		if c, err := r.Cookie("session"); err == nil && sessions.Valid(c.Value) {
 			next.ServeHTTP(w, r)

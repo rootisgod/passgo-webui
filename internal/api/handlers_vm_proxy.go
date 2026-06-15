@@ -24,39 +24,53 @@ const (
 )
 
 type proxyRuleCreateRequest struct {
-	VM        string `json:"vm"`
-	Port      int    `json:"port"`
-	Protocol  string `json:"protocol"`
-	HostPort  int    `json:"host_port"`
-	Label     string `json:"label"`
-	Enabled   *bool  `json:"enabled"`
-	ExpiresAt string `json:"expires_at"`
+	VM            string `json:"vm"`
+	Port          int    `json:"port"`
+	Protocol      string `json:"protocol"`
+	HostPort      int    `json:"host_port"`
+	AutoHostPort  bool   `json:"auto_host_port"`
+	BindAddress   string `json:"bind_address"`
+	Label         string `json:"label"`
+	Owner         string `json:"owner"`
+	Enabled       *bool  `json:"enabled"`
+	ExpiresAt     string `json:"expires_at"`
+	TTLMinutes    *int   `json:"ttl_minutes"`
+	GenerateToken *bool  `json:"generate_token"`
 }
 
 type proxyRuleUpdateRequest struct {
 	Label     *string `json:"label"`
+	Owner     *string `json:"owner"`
 	Enabled   *bool   `json:"enabled"`
 	ExpiresAt *string `json:"expires_at"`
 }
 
 type proxyRuleResponse struct {
-	ID            string `json:"id"`
-	VM            string `json:"vm"`
-	Port          int    `json:"port"`
-	HostPort      int    `json:"host_port,omitempty"`
-	Label         string `json:"label,omitempty"`
-	Protocol      string `json:"protocol"`
-	Enabled       bool   `json:"enabled"`
-	ExpiresAt     string `json:"expires_at,omitempty"`
-	CreatedAt     string `json:"created_at"`
-	ProxyURL      string `json:"proxy_url,omitempty"`
-	ListenAddress string `json:"listen_address,omitempty"`
-	SSHCommand    string `json:"ssh_command,omitempty"`
-	Destination   string `json:"destination"`
-	Target        string `json:"target,omitempty"`
-	VMState       string `json:"vm_state,omitempty"`
-	Status        string `json:"status"`
-	StatusDetail  string `json:"status_detail,omitempty"`
+	ID             string `json:"id"`
+	VM             string `json:"vm"`
+	Port           int    `json:"port"`
+	HostPort       int    `json:"host_port,omitempty"`
+	BindAddress    string `json:"bind_address,omitempty"`
+	Label          string `json:"label,omitempty"`
+	Owner          string `json:"owner,omitempty"`
+	Protocol       string `json:"protocol"`
+	Enabled        bool   `json:"enabled"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	ProxyURL       string `json:"proxy_url,omitempty"`
+	AccessToken    string `json:"access_token,omitempty"`
+	TokenRequired  bool   `json:"token_required,omitempty"`
+	TokenPrefix    string `json:"token_prefix,omitempty"`
+	ListenAddress  string `json:"listen_address,omitempty"`
+	SSHCommand     string `json:"ssh_command,omitempty"`
+	SSHKeyPath     string `json:"ssh_key_path,omitempty"`
+	Destination    string `json:"destination"`
+	Target         string `json:"target,omitempty"`
+	VMState        string `json:"vm_state,omitempty"`
+	Status         string `json:"status"`
+	StatusDetail   string `json:"status_detail,omitempty"`
+	LastAccessedAt string `json:"last_accessed_at,omitempty"`
+	AccessCount    int    `json:"access_count,omitempty"`
 }
 
 func (s *Server) handleListProxyRules(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +81,8 @@ func (s *Server) handleListProxyRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	s.cleanupExpiredProxyRules()
 
 	s.cfgMu.Lock()
 	rules := append([]config.ProxyRule(nil), s.cfg.GetProxyRules()...)
@@ -113,8 +129,18 @@ func (s *Server) handleCreateProxyRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("port must be between %d and %d", minProxyPort, maxProxyPort))
 		return
 	}
+	if req.TTLMinutes != nil && *req.TTLMinutes < 0 {
+		writeError(w, http.StatusBadRequest, "ttl_minutes must not be negative")
+		return
+	}
 	if _, err := s.mp.GetVMInfo(req.VM); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if s.isVMTemplate(req.VM) {
+		msg := s.templateProtectedError("adding proxy rules to")
+		s.eventLog.EmitHTTPEvent(r, "config", "create_proxy_rule", req.VM, "failed", msg)
+		writeError(w, http.StatusConflict, msg)
 		return
 	}
 
@@ -127,23 +153,57 @@ func (s *Server) handleCreateProxyRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to generate proxy rule ID")
 		return
 	}
-	rule := config.ProxyRule{
-		ID:        id,
-		VM:        req.VM,
-		Port:      req.Port,
-		Protocol:  protocol,
-		HostPort:  req.HostPort,
-		Label:     strings.TrimSpace(req.Label),
-		Enabled:   enabled,
-		ExpiresAt: strings.TrimSpace(req.ExpiresAt),
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	now := time.Now().UTC()
+	expiresAt := strings.TrimSpace(req.ExpiresAt)
+	if req.TTLMinutes != nil && *req.TTLMinutes > 0 {
+		expiresAt = now.Add(time.Duration(*req.TTLMinutes) * time.Minute).Format(time.RFC3339)
 	}
-	if err := rule.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	if protocol == "ssh" && expiresAt == "" {
+		expiresAt = now.Add(4 * time.Hour).Format(time.RFC3339)
+	}
+	token := ""
+	generateToken := protocol == "http"
+	if req.GenerateToken != nil {
+		generateToken = *req.GenerateToken
+	}
+	rule := config.ProxyRule{
+		ID:          id,
+		VM:          req.VM,
+		Port:        req.Port,
+		Protocol:    protocol,
+		HostPort:    req.HostPort,
+		BindAddress: strings.TrimSpace(req.BindAddress),
+		Label:       strings.TrimSpace(req.Label),
+		Owner:       strings.TrimSpace(req.Owner),
+		Enabled:     enabled,
+		ExpiresAt:   expiresAt,
+		CreatedAt:   now.Format(time.RFC3339),
+	}
+	if protocol == "http" && generateToken {
+		token, err = newProxyAccessToken()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate proxy access token")
+			return
+		}
+		rule.AccessTokenHash = sha256Hex(token)
+		rule.AccessTokenPrefix = proxyTokenPrefix(token)
 	}
 
 	s.cfgMu.Lock()
+	if protocol == "ssh" && (req.AutoHostPort || rule.HostPort == 0) {
+		hostPort, err := s.allocateProxyHostPortLocked(rule.BindAddress)
+		if err != nil {
+			s.cfgMu.Unlock()
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		rule.HostPort = hostPort
+	}
+	if err := rule.Validate(); err != nil {
+		s.cfgMu.Unlock()
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.cfg.AddProxyRule(rule); err != nil {
 		s.cfgMu.Unlock()
 		if strings.Contains(err.Error(), "already exists") {
@@ -162,7 +222,33 @@ func (s *Server) handleCreateProxyRule(w http.ResponseWriter, r *http.Request) {
 	s.reconcileTCPForwards()
 
 	s.eventLog.EmitHTTPEvent(r, "config", "create_proxy_rule", rule.VM, "success", proxyRuleEventDetail(rule))
-	writeJSON(w, http.StatusCreated, s.proxyRuleResponse(r, rule, nil, nil, time.Now().UTC()))
+	resp := s.proxyRuleResponse(r, rule, nil, nil, time.Now().UTC())
+	if token != "" {
+		resp.AccessToken = token
+		resp.ProxyURL = addProxyTokenToURL(resp.ProxyURL, token)
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (s *Server) handleCleanupProxyRules(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC()
+	s.cfgMu.Lock()
+	before := len(s.cfg.ProxyRules)
+	changed := s.cleanupExpiredProxyRulesLocked(now)
+	removed := before - len(s.cfg.ProxyRules)
+	if changed {
+		if err := s.cfg.Save(s.configPath); err != nil {
+			s.cfgMu.Unlock()
+			writeError(w, http.StatusInternalServerError, "failed to save config")
+			return
+		}
+	}
+	s.cfgMu.Unlock()
+	if changed {
+		s.reconcileTCPForwards()
+	}
+	s.eventLog.EmitHTTPEvent(r, "config", "cleanup_proxy_rules", "", "success", fmt.Sprintf("removed=%d", removed))
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
 }
 
 func (s *Server) handleUpdateProxyRule(w http.ResponseWriter, r *http.Request) {
@@ -189,11 +275,21 @@ func (s *Server) handleUpdateProxyRule(w http.ResponseWriter, r *http.Request) {
 	if req.Label != nil {
 		rule.Label = strings.TrimSpace(*req.Label)
 	}
+	if req.Owner != nil {
+		rule.Owner = strings.TrimSpace(*req.Owner)
+	}
 	if req.Enabled != nil {
 		rule.Enabled = *req.Enabled
 	}
 	if req.ExpiresAt != nil {
 		rule.ExpiresAt = strings.TrimSpace(*req.ExpiresAt)
+	}
+	if rule.Enabled && s.cfg.VMTemplates != nil && s.cfg.VMTemplates[rule.VM] {
+		s.cfgMu.Unlock()
+		msg := s.templateProtectedError("enabling proxy rules for")
+		s.eventLog.EmitHTTPEvent(r, "config", "update_proxy_rule", rule.VM, "failed", msg)
+		writeError(w, http.StatusConflict, msg)
+		return
 	}
 	if err := s.cfg.UpdateProxyRule(rule); err != nil {
 		s.cfgMu.Unlock()
@@ -266,7 +362,7 @@ func (s *Server) handleVMHTTPProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, access := s.proxyRuleAccess(name, port, time.Now().UTC())
+	rule, access := s.proxyRuleAccess(name, port, time.Now().UTC())
 	switch access {
 	case "allowed":
 	case "expired":
@@ -284,6 +380,8 @@ func (s *Server) handleVMHTTPProxy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.recordProxyAccess(rule.ID)
+	s.eventLog.EmitHTTPEvent(r, "proxy", "http_request", proxyRuleResource(rule), "success", fmt.Sprintf("source=%s", clientIPFromRequest(r, s.cfg.TrustProxy)))
 
 	target := &url.URL{Scheme: "http", Host: addr}
 	proxyBase := s.proxyBasePath(name, port)
@@ -302,7 +400,7 @@ func (s *Server) handleVMHTTPProxy(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Host = addr
 			pr.Out.URL.Path = upstreamPath
 			pr.Out.URL.RawPath = ""
-			pr.Out.URL.RawQuery = pr.In.URL.RawQuery
+			pr.Out.URL.RawQuery = stripProxyTokenQuery(pr.In.URL.RawQuery)
 			pr.Out.Header.Del("Cookie")
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Set("X-Forwarded-Prefix", proxyBase)
@@ -324,20 +422,29 @@ func (s *Server) handleVMHTTPProxy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) proxyRuleResponse(r *http.Request, rule config.ProxyRule, vmByName map[string]multipass.VMInfo, vmErr error, now time.Time) proxyRuleResponse {
 	protocol := proxyRuleProtocol(rule)
 	resp := proxyRuleResponse{
-		ID:          rule.ID,
-		VM:          rule.VM,
-		Port:        rule.Port,
-		HostPort:    rule.HostPort,
-		Label:       rule.Label,
-		Protocol:    proxyRuleProtocolLabel(protocol),
-		Enabled:     rule.Enabled,
-		ExpiresAt:   rule.ExpiresAt,
-		CreatedAt:   rule.CreatedAt,
-		Destination: fmt.Sprintf("%s:%d", rule.VM, rule.Port),
+		ID:             rule.ID,
+		VM:             rule.VM,
+		Port:           rule.Port,
+		HostPort:       rule.HostPort,
+		BindAddress:    rule.BindAddress,
+		Label:          rule.Label,
+		Owner:          rule.Owner,
+		Protocol:       proxyRuleProtocolLabel(protocol),
+		Enabled:        rule.Enabled,
+		ExpiresAt:      rule.ExpiresAt,
+		CreatedAt:      rule.CreatedAt,
+		TokenRequired:  rule.AccessTokenHash != "",
+		TokenPrefix:    rule.AccessTokenPrefix,
+		Destination:    fmt.Sprintf("%s:%d", rule.VM, rule.Port),
+		LastAccessedAt: rule.LastAccessedAt,
+		AccessCount:    rule.AccessCount,
 	}
 	if protocol == "ssh" {
 		resp.ListenAddress = s.sshListenAddressForRule(r, rule)
 		resp.SSHCommand = s.sshCommandForRule(r, rule)
+		if s.cfg != nil && s.cfg.VMDefaults != nil {
+			resp.SSHKeyPath = s.cfg.VMDefaults.SSHPrivateKey
+		}
 	} else {
 		resp.ProxyURL = s.proxyURLForRule(r, rule)
 	}
@@ -481,13 +588,24 @@ func (s *Server) proxyURLForRule(r *http.Request, rule config.ProxyRule) string 
 }
 
 func (s *Server) sshListenAddressForRule(r *http.Request, rule config.ProxyRule) string {
-	host := externalHostname(s.externalHostForRequest(r))
+	host := s.sshHostForRule(r, rule)
 	return net.JoinHostPort(host, strconv.Itoa(rule.HostPort))
 }
 
 func (s *Server) sshCommandForRule(r *http.Request, rule config.ProxyRule) string {
-	host := sshCommandHost(externalHostname(s.externalHostForRequest(r)))
+	host := sshCommandHost(s.sshHostForRule(r, rule))
+	if s.cfg != nil && s.cfg.VMDefaults != nil && strings.TrimSpace(s.cfg.VMDefaults.SSHPrivateKey) != "" {
+		return fmt.Sprintf("ssh -i %s -p %d ubuntu@%s", shellQuote(s.cfg.VMDefaults.SSHPrivateKey), rule.HostPort, host)
+	}
 	return fmt.Sprintf("ssh -p %d ubuntu@%s", rule.HostPort, host)
+}
+
+func (s *Server) sshHostForRule(r *http.Request, rule config.ProxyRule) string {
+	bind := normalizeAPIBindAddress(rule.BindAddress)
+	if bind != "" && bind != "0.0.0.0" && bind != "::" {
+		return bind
+	}
+	return externalHostname(s.externalHostForRequest(r))
 }
 
 func (s *Server) externalHostForRequest(r *http.Request) string {
@@ -523,6 +641,16 @@ func sshCommandHost(host string) string {
 	return host
 }
 
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(value, " \t\n'\"\\$`!") {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func proxyRuleProtocolLabel(protocol string) string {
 	if protocol == "ssh" {
 		return "SSH"
@@ -532,9 +660,108 @@ func proxyRuleProtocolLabel(protocol string) string {
 
 func proxyRuleEventDetail(rule config.ProxyRule) string {
 	if proxyRuleProtocol(rule) == "ssh" {
-		return fmt.Sprintf("protocol=ssh port=%d host_port=%d", rule.Port, rule.HostPort)
+		return fmt.Sprintf("protocol=ssh port=%d host_port=%d bind=%s owner=%s", rule.Port, rule.HostPort, rule.BindAddress, rule.Owner)
 	}
-	return fmt.Sprintf("protocol=http port=%d", rule.Port)
+	return fmt.Sprintf("protocol=http port=%d owner=%s token=%t", rule.Port, rule.Owner, rule.AccessTokenHash != "")
+}
+
+func proxyRuleResource(rule config.ProxyRule) string {
+	return fmt.Sprintf("%s/%s:%d", proxyRuleProtocol(rule), rule.VM, rule.Port)
+}
+
+func (s *Server) recordProxyAccess(ruleID string) {
+	if s == nil || s.cfg == nil || ruleID == "" {
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.cfgMu.Lock()
+	rule, _ := s.cfg.GetProxyRule(ruleID)
+	if rule != nil {
+		rule.LastAccessedAt = now
+		rule.AccessCount++
+		_ = s.cfg.Save(s.configPath)
+	}
+	s.cfgMu.Unlock()
+}
+
+func (s *Server) cleanupExpiredProxyRules() {
+	if s == nil || s.cfg == nil {
+		return
+	}
+	s.cfgMu.Lock()
+	changed := s.cleanupExpiredProxyRulesLocked(time.Now().UTC())
+	if changed {
+		_ = s.cfg.Save(s.configPath)
+	}
+	s.cfgMu.Unlock()
+	if changed {
+		s.reconcileTCPForwards()
+	}
+}
+
+func (s *Server) cleanupExpiredProxyRulesLocked(now time.Time) bool {
+	if s == nil || s.cfg == nil || len(s.cfg.ProxyRules) == 0 {
+		return false
+	}
+	kept := s.cfg.ProxyRules[:0]
+	changed := false
+	for _, rule := range s.cfg.ProxyRules {
+		if proxyRuleExpired(rule, now) {
+			changed = true
+			continue
+		}
+		kept = append(kept, rule)
+	}
+	if changed {
+		s.cfg.ProxyRules = kept
+	}
+	return changed
+}
+
+func (s *Server) allocateProxyHostPortLocked(bindAddress string) (int, error) {
+	if s == nil || s.cfg == nil {
+		return 0, fmt.Errorf("config is unavailable")
+	}
+	bindAddress = normalizeAPIBindAddress(bindAddress)
+	used := make(map[int]bool)
+	for _, rule := range s.cfg.GetProxyRules() {
+		if proxyRuleProtocol(rule) == "ssh" && rule.HostPort > 0 {
+			used[rule.HostPort] = true
+		}
+	}
+	for port := 2200; port <= 2299; port++ {
+		if used[port] || !portAvailable(bindAddress, port) {
+			continue
+		}
+		return port, nil
+	}
+	for port := 2300; port <= 2999; port++ {
+		if used[port] || !portAvailable(bindAddress, port) {
+			continue
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("no available SSH listen ports in 2200-2999")
+}
+
+func portAvailable(bindAddress string, port int) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+func normalizeAPIBindAddress(bindAddress string) string {
+	switch strings.ToLower(strings.TrimSpace(bindAddress)) {
+	case "", "all", "lan":
+		return "0.0.0.0"
+	case "local", "localhost":
+		return "127.0.0.1"
+	default:
+		return strings.TrimSpace(bindAddress)
+	}
 }
 
 func (s *Server) proxyBasePath(name string, port int) string {

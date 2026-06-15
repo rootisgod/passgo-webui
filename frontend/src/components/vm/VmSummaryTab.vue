@@ -100,7 +100,7 @@ async function copySSHKey() {
   if (!sshPublicKey.value || copyingKey.value) return
   copyingKey.value = true
   try {
-    await api.execInVM(vm.value.name, ['bash', '-c', `mkdir -p ~/.ssh && echo ${JSON.stringify(sshPublicKey.value)} >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys`])
+    await api.installSSHKey(vm.value.name, sshPublicKey.value)
     toasts.success(`SSH key copied to ${vm.value.name}`)
   } catch (e) {
     toasts.error(e.message)

@@ -47,6 +47,9 @@ func TestProxyRuleHandlersCRUDAndStatus(t *testing.T) {
 		t.Fatalf("proxy rules = %d, want 1", len(s.cfg.ProxyRules))
 	}
 	ruleID := s.cfg.ProxyRules[0].ID
+	if s.cfg.ProxyRules[0].AccessTokenHash == "" {
+		t.Fatal("http proxy rule should store an access token hash")
+	}
 
 	rr = httptest.NewRecorder()
 	s.handleListProxyRules(rr, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-rules", nil))
@@ -84,6 +87,43 @@ func TestProxyRuleHandlersCRUDAndStatus(t *testing.T) {
 	}
 	if len(s.cfg.ProxyRules) != 0 {
 		t.Fatalf("proxy rules = %d, want 0", len(s.cfg.ProxyRules))
+	}
+}
+
+func TestProxyRuleCreateReturnsOneTimeAccessToken(t *testing.T) {
+	const infoApp = `{"errors":[],"info":{"app":{"state":"Running","cpu_count":"2","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":["192.168.64.20"],"snapshot_count":"0"}}}`
+	runner := func(args ...string) (string, error) {
+		if strings.Join(args, " ") == "info app --format json" {
+			return infoApp, nil
+		}
+		t.Fatalf("unexpected multipass call: %v", args)
+		return "", nil
+	}
+	s := &Server{
+		mp:         multipass.NewClientWithRunner(slog.New(slog.NewTextHandler(io.Discard, nil)), runner),
+		cfg:        &config.Config{ProxyRules: []config.ProxyRule{}},
+		configPath: filepath.Join(t.TempDir(), "config.json"),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-rules", bytes.NewBufferString(`{"vm":"app","port":5173,"owner":"agent-1","ttl_minutes":60}`))
+	req.Host = "passgo.local:8080"
+	rr := httptest.NewRecorder()
+	s.handleCreateProxyRule(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var created proxyRuleResponse
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created.AccessToken == "" || !strings.Contains(created.ProxyURL, proxyTokenQueryParam+"=") {
+		t.Fatalf("created token/url = %q/%q", created.AccessToken, created.ProxyURL)
+	}
+	if strings.Contains(s.cfg.ProxyRules[0].AccessTokenHash, created.AccessToken) {
+		t.Fatal("stored token hash should not contain plaintext token")
+	}
+	if s.cfg.ProxyRules[0].Owner != "agent-1" || s.cfg.ProxyRules[0].ExpiresAt == "" {
+		t.Fatalf("stored owner/expires = %+v", s.cfg.ProxyRules[0])
 	}
 }
 
@@ -125,7 +165,7 @@ func TestProxyRuleCreateSSHDefaultsToPort22AndHostPort(t *testing.T) {
 		configPath: filepath.Join(t.TempDir(), "config.json"),
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-rules", bytes.NewBufferString(`{"vm":"app","protocol":"ssh","host_port":2222,"label":"Agent SSH"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-rules", bytes.NewBufferString(`{"vm":"app","protocol":"ssh","host_port":2222,"bind_address":"127.0.0.1","label":"Agent SSH"}`))
 	req.Host = "passgo.local:8080"
 	rr := httptest.NewRecorder()
 	s.handleCreateProxyRule(rr, req)
@@ -136,22 +176,67 @@ func TestProxyRuleCreateSSHDefaultsToPort22AndHostPort(t *testing.T) {
 		t.Fatalf("proxy rules = %d, want 1", len(s.cfg.ProxyRules))
 	}
 	rule := s.cfg.ProxyRules[0]
-	if rule.Protocol != "ssh" || rule.Port != 22 || rule.HostPort != 2222 {
-		t.Fatalf("stored rule = %+v, want ssh vm port 22 host port 2222", rule)
+	if rule.Protocol != "ssh" || rule.Port != 22 || rule.HostPort != 2222 || rule.BindAddress != "127.0.0.1" || rule.ExpiresAt == "" {
+		t.Fatalf("stored rule = %+v, want ssh vm port 22 host port 2222 local bind with expiry", rule)
 	}
 
 	var created proxyRuleResponse
 	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
 		t.Fatalf("decode create: %v", err)
 	}
-	if created.Protocol != "SSH" || created.Destination != "app:22" || created.ListenAddress != "passgo.local:2222" {
+	if created.Protocol != "SSH" || created.Destination != "app:22" || created.ListenAddress != "127.0.0.1:2222" {
 		t.Fatalf("created response = %+v", created)
 	}
-	if created.SSHCommand != "ssh -p 2222 ubuntu@passgo.local" {
+	if created.SSHCommand != "ssh -p 2222 ubuntu@127.0.0.1" {
 		t.Fatalf("ssh command = %q", created.SSHCommand)
 	}
 	if created.ProxyURL != "" {
 		t.Fatalf("ssh rule should not include proxy URL, got %q", created.ProxyURL)
+	}
+}
+
+func TestProxyRuleCreateSSHAutoAllocatesHostPort(t *testing.T) {
+	runner := func(args ...string) (string, error) {
+		if strings.Join(args, " ") == "info app --format json" {
+			return `{"errors":[],"info":{"app":{"state":"Stopped","cpu_count":"2","memory":{"used":0,"total":0},"disks":{},"mounts":{},"ipv4":[],"snapshot_count":"0"}}}`, nil
+		}
+		t.Fatalf("unexpected multipass call: %v", args)
+		return "", nil
+	}
+	s := &Server{
+		mp:         multipass.NewClientWithRunner(slog.New(slog.NewTextHandler(io.Discard, nil)), runner),
+		cfg:        &config.Config{ProxyRules: []config.ProxyRule{}},
+		configPath: filepath.Join(t.TempDir(), "config.json"),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxy-rules", bytes.NewBufferString(`{"vm":"app","protocol":"ssh","auto_host_port":true,"bind_address":"127.0.0.1"}`))
+	rr := httptest.NewRecorder()
+	s.handleCreateProxyRule(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	rule := s.cfg.ProxyRules[0]
+	if rule.HostPort < 2200 || rule.HostPort > 2999 {
+		t.Fatalf("auto host port = %d, want 2200-2999", rule.HostPort)
+	}
+}
+
+func TestCleanupProxyRulesRemovesExpiredRules(t *testing.T) {
+	now := time.Now().UTC()
+	s := &Server{
+		cfg: &config.Config{ProxyRules: []config.ProxyRule{
+			{ID: "px_old", VM: "app", Port: 3000, Protocol: "http", Enabled: true, ExpiresAt: now.Add(-time.Minute).Format(time.RFC3339), CreatedAt: now.Format(time.RFC3339)},
+			{ID: "px_live", VM: "app", Port: 5173, Protocol: "http", Enabled: true, ExpiresAt: now.Add(time.Hour).Format(time.RFC3339), CreatedAt: now.Format(time.RFC3339)},
+		}},
+		configPath: filepath.Join(t.TempDir(), "config.json"),
+	}
+	rr := httptest.NewRecorder()
+	s.handleCleanupProxyRules(rr, httptest.NewRequest(http.MethodPost, "/api/v1/proxy-rules/cleanup", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("cleanup status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	if len(s.cfg.ProxyRules) != 1 || s.cfg.ProxyRules[0].ID != "px_live" {
+		t.Fatalf("proxy rules after cleanup = %+v", s.cfg.ProxyRules)
 	}
 }
 

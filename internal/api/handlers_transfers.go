@@ -40,6 +40,9 @@ func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, name, "uploading files to") {
+		return
+	}
 
 	// 32MB limit
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -154,6 +157,9 @@ type mkdirRequest struct {
 func (s *Server) handleMkdirInVM(w http.ResponseWriter, r *http.Request) {
 	name, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.guardTemplateMutation(w, r, name, "creating directories in") {
 		return
 	}
 	var req mkdirRequest

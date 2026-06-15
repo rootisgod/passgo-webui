@@ -29,6 +29,9 @@ func (s *Server) handleAddMount(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.guardTemplateMutation(w, r, vmName, "adding mounts to") {
+		return
+	}
 	var req addMountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Source == "" || req.Target == "" {
 		writeError(w, http.StatusBadRequest, "source and target are required")
@@ -48,6 +51,9 @@ type removeMountRequest struct {
 func (s *Server) handleRemoveMount(w http.ResponseWriter, r *http.Request) {
 	vmName, ok := validVMName(w, r, "name")
 	if !ok {
+		return
+	}
+	if s.guardTemplateMutation(w, r, vmName, "removing mounts from") {
 		return
 	}
 	var req removeMountRequest

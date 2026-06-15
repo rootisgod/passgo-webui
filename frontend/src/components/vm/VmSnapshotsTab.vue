@@ -135,6 +135,7 @@ const confirmAction = ref(null)
 
 const vm = computed(() => store.selectedVm)
 const isRunning = computed(() => vm.value?.state === 'Running')
+const isTemplate = computed(() => store.selectedNode ? store.isTemplate(store.selectedNode) : false)
 
 async function loadSnapshots() {
   loading.value = true
@@ -212,9 +213,9 @@ onMounted(() => {
 <template>
   <div class="p-6">
     <!-- Warning for running VMs -->
-    <div v-if="isRunning" class="flex items-center gap-2 p-3 mb-4 rounded-lg bg-yellow-900/20 border border-yellow-800 text-yellow-300 text-sm">
+    <div v-if="isRunning || isTemplate" class="flex items-center gap-2 p-3 mb-4 rounded-lg bg-yellow-900/20 border border-yellow-800 text-yellow-300 text-sm">
       <AlertTriangle class="w-4 h-4 flex-shrink-0" />
-      Stop the VM to manage snapshots
+      {{ isTemplate ? 'Remove the template tag to manage snapshots' : 'Stop the VM to manage snapshots' }}
     </div>
 
     <div class="flex items-center justify-between mb-4">
@@ -223,7 +224,7 @@ onMounted(() => {
         label="Create Snapshot"
         :icon="Plus"
         variant="success"
-        :disabled="isRunning"
+        :disabled="isRunning || isTemplate"
         @click="showCreateModal = true"
       />
     </div>
@@ -315,8 +316,8 @@ onMounted(() => {
         <div class="flex items-center gap-2 flex-shrink-0">
           <button
             class="p-1 rounded hover:bg-[var(--accent)] transition-colors"
-            :disabled="isRunning"
-            :class="isRunning ? 'opacity-40 cursor-not-allowed' : ''"
+            :disabled="isRunning || isTemplate"
+            :class="isRunning || isTemplate ? 'opacity-40 cursor-not-allowed' : ''"
             title="Restore"
             @click="restoreSnapshot(snap.name)"
           >
@@ -333,8 +334,8 @@ onMounted(() => {
           </button>
           <button
             class="p-1 rounded hover:bg-[var(--danger)] transition-colors"
-            :disabled="isRunning"
-            :class="isRunning ? 'opacity-40 cursor-not-allowed' : ''"
+            :disabled="isRunning || isTemplate"
+            :class="isRunning || isTemplate ? 'opacity-40 cursor-not-allowed' : ''"
             title="Delete"
             @click="deleteSnap(snap.name)"
           >
