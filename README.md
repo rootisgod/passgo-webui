@@ -163,7 +163,7 @@ Open **Chat Settings** from the chat panel to choose a provider.
 
 Native CLI providers still route all VM actions through PassGo's existing tool executor, read-only mode, and destructive-action confirmation flow.
 
-The reusable boundary for extracting this settings UI and backend support into other apps is documented in [docs/llm-settings-kit.md](docs/llm-settings-kit.md).
+The reusable provider settings UI and backend support has been extracted to [iaingblack/llm-kit](https://github.com/iaingblack/llm-kit). PassGo's local boundary notes are in [docs/llm-settings-kit.md](docs/llm-settings-kit.md).
 
 ## API
 
