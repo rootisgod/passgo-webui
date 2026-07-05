@@ -61,6 +61,8 @@ export const useChatStore = defineStore('chat', {
       baseUrl: '',
       model: '',
       hasApiKey: false,
+      apiKeySource: 'none',
+      provider: 'openai_compatible',
       readOnly: false,
     },
     pendingConfirmation: null,
@@ -93,6 +95,8 @@ export const useChatStore = defineStore('chat', {
           baseUrl: cfg.base_url,
           model: cfg.model,
           hasApiKey: cfg.has_api_key,
+          apiKeySource: cfg.api_key_source || 'none',
+          provider: cfg.provider || 'openai_compatible',
           readOnly: cfg.read_only,
         }
       } catch (e) {
@@ -106,12 +110,15 @@ export const useChatStore = defineStore('chat', {
           base_url: cfg.baseUrl,
           api_key: cfg.apiKey || '',
           model: cfg.model,
+          provider: cfg.provider || '',
           read_only: cfg.readOnly,
         })
         this.config = {
           baseUrl: result.base_url,
           model: result.model,
           hasApiKey: result.has_api_key,
+          apiKeySource: result.api_key_source || 'none',
+          provider: result.provider || 'openai_compatible',
           readOnly: result.read_only,
         }
         return true

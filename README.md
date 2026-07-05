@@ -79,7 +79,9 @@ Modelled on the Proxmox/vSphere UI pattern: a tree sidebar for navigation, tabbe
 
 ### AI Chat Assistant
 - **LLM-powered management** — manage VMs using natural language through a built-in chat panel
+- **Vercel AI Gateway quick setup** for multi-provider access via one OpenAI-compatible endpoint
 - **Works with any OpenAI-compatible API** (OpenRouter, Ollama, etc.)
+- **Native Codex/Claude Code CLI backends** that use the server user's local CLI login while PassGo still executes tools and confirmations
 - **Tool-calling agent** with 24 tools covering VM operations, cloud-init, groups, and more
 - **Safety controls** — destructive operations require explicit confirmation; read-only mode available
 - **SSE streaming** with markdown rendering
@@ -141,7 +143,7 @@ Config lives at `~/.passgo-web/config.json`. Key settings:
 | `listen` | Address and port (default `:8080`) |
 | `cloud_init_dir` | Directory for custom cloud-init templates |
 | `trust_proxy` | Trust `X-Forwarded-For` headers when behind a reverse proxy |
-| `llm` | LLM chat config: `base_url`, `api_key`, `model`, `read_only` |
+| `llm` | LLM chat config: `provider`, `base_url`, `api_key`, `model`, `read_only`. Defaults to Vercel AI Gateway; `AI_GATEWAY_API_KEY` may be provided server-side. Native `codex_cli` / `claude_code_cli` providers use the server user's CLI login. |
 | `profiles` | Saved launch profiles |
 | `schedules` | Scheduled operations |
 | `webhooks` | Webhook notification endpoints |
@@ -149,6 +151,19 @@ Config lives at `~/.passgo-web/config.json`. Key settings:
 | `groups` / `vm_groups` | VM group definitions and assignments |
 
 User cloud-init templates (`.yml` files starting with `#cloud-config`) placed in the `cloud_init_dir` directory will appear in the template picker when creating VMs.
+
+### AI Chat Providers
+
+Open **Chat Settings** from the chat panel to choose a provider.
+
+- **Vercel AI Gateway** is the default quick setup. It uses `https://ai-gateway.vercel.sh/v1` and can use either a saved API key or server-side `AI_GATEWAY_API_KEY`. The browser never receives the key.
+- **OpenRouter/custom OpenAI-compatible** providers continue to use `base_url`, `api_key`, and `model`.
+- **Ollama (local)** continues to use a local OpenAI-compatible base URL such as `http://localhost:11434/v1`.
+- **ChatGPT (Codex CLI)** and **Claude Code** use the server user's existing CLI login. Run `codex login status` or `claude auth status` as the same OS user that runs PassGo Web, then select the detected login in Chat Settings. PassGo does not read CLI token files; it only checks auth status and invokes the CLI as a model backend.
+
+Native CLI providers still route all VM actions through PassGo's existing tool executor, read-only mode, and destructive-action confirmation flow.
+
+The reusable boundary for extracting this settings UI and backend support into other apps is documented in [docs/llm-settings-kit.md](docs/llm-settings-kit.md).
 
 ## API
 
@@ -223,6 +238,7 @@ All endpoints require authentication via session cookie or `Authorization: Beare
 | `/chat` | POST | LLM chat (SSE stream) |
 | `/chat/config` | GET/PUT | LLM configuration |
 | `/chat/models` | GET | List available models |
+| `/chat/native-auth` | GET | Detect server-side Codex/Claude CLI login status |
 | **Config** | | |
 | `/config/export` | GET | Export settings + templates + playbooks |
 | `/config/import` | POST | Import from exported bundle |

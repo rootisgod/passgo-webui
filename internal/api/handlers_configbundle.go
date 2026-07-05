@@ -46,6 +46,7 @@ type llmConfigExport struct {
 	BaseURL  string `json:"base_url"`
 	Model    string `json:"model"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +83,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 			BaseURL:  s.cfg.LLM.BaseURL,
 			Model:    s.cfg.LLM.Model,
 			ReadOnly: s.cfg.LLM.ReadOnly,
+			Provider: s.cfg.LLM.Provider,
 		}
 	}
 	cloudInitDir := s.cfg.CloudInitDir
@@ -215,6 +217,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 			s.cfg.LLM.BaseURL = bundle.Config.LLM.BaseURL
 			s.cfg.LLM.Model = bundle.Config.LLM.Model
 			s.cfg.LLM.ReadOnly = bundle.Config.LLM.ReadOnly
+			s.cfg.LLM.Provider = bundle.Config.LLM.Provider
 			// Preserve existing API key
 		}
 	}

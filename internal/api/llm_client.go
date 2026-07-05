@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rootisgod/passgo-web/internal/aiaccess"
 	"github.com/rootisgod/passgo-web/internal/config"
 )
 
@@ -68,8 +69,9 @@ var llmHTTPClient = &http.Client{Timeout: 5 * time.Minute}
 // llmChat makes a non-streaming call to the OpenAI-compatible chat completions endpoint.
 // Used during the tool-calling loop where we need the full response before proceeding.
 func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage, tools []toolDef) (*chatMessage, *llmUsage, error) {
+	resolved := resolveLLMConfig(*cfg)
 	reqBody := llmChatRequest{
-		Model:    cfg.Model,
+		Model:    resolved.Model,
 		Messages: messages,
 		Tools:    tools,
 		Stream:   false,
@@ -80,15 +82,12 @@ func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage,
 		return nil, nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(cfg.BaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", resolved.ChatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	}
+	resolved.Authorize(req)
 
 	resp, err := llmHTTPClient.Do(req)
 	if err != nil {
@@ -102,7 +101,7 @@ func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage,
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("LLM returned status %d: %s", resp.StatusCode, truncate(string(body), 300))
+		return nil, nil, aiaccess.ProviderError("LLM", resp.StatusCode, body)
 	}
 
 	var chatResp llmChatResponse
@@ -120,8 +119,9 @@ func llmChat(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage,
 // llmChatStream makes a streaming call and sends tokens to the returned channel.
 // Used for the final text response to provide real-time output.
 func llmChatStream(ctx context.Context, cfg *config.LLMConfig, messages []chatMessage) (<-chan streamEvent, error) {
+	resolved := resolveLLMConfig(*cfg)
 	reqBody := llmChatRequest{
-		Model:    cfg.Model,
+		Model:    resolved.Model,
 		Messages: messages,
 		Stream:   true,
 	}
@@ -131,15 +131,12 @@ func llmChatStream(ctx context.Context, cfg *config.LLMConfig, messages []chatMe
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := strings.TrimRight(cfg.BaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "POST", resolved.ChatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	}
+	resolved.Authorize(req)
 
 	resp, err := llmHTTPClient.Do(req)
 	if err != nil {
@@ -149,7 +146,7 @@ func llmChatStream(ctx context.Context, cfg *config.LLMConfig, messages []chatMe
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		resp.Body.Close()
-		return nil, fmt.Errorf("LLM returned status %d: %s", resp.StatusCode, truncate(string(body), 300))
+		return nil, aiaccess.ProviderError("LLM", resp.StatusCode, body)
 	}
 
 	ch := make(chan streamEvent, 64)
@@ -194,11 +191,4 @@ func llmChatStream(ctx context.Context, cfg *config.LLMConfig, messages []chatMe
 	}()
 
 	return ch, nil
-}
-
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

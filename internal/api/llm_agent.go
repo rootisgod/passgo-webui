@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/rootisgod/passgo-web/internal/aiaccess"
+	"github.com/rootisgod/passgo-web/internal/config"
 	"github.com/rootisgod/passgo-web/pkg/multipass"
 )
 
@@ -51,34 +53,33 @@ func normalizeJSON(s string) string {
 }
 
 type sseEvent struct {
-	Type        string `json:"type"`                   // token, tool_start, tool_done, confirm_required, error, done
-	Content     string `json:"content,omitempty"`
-	Name        string `json:"name,omitempty"`
-	Args        string `json:"args,omitempty"`
-	Result      string `json:"result,omitempty"`
-	ConfirmID   string    `json:"confirm_id,omitempty"`   // unique ID for confirmation flow
-	Description string    `json:"description,omitempty"`  // human-readable description of what will happen
-	Usage       *llmUsage `json:"usage,omitempty"`        // token usage stats (sent with done event)
+	Type        string    `json:"type"` // token, tool_start, tool_done, confirm_required, error, done
+	Content     string    `json:"content,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	Args        string    `json:"args,omitempty"`
+	Result      string    `json:"result,omitempty"`
+	ConfirmID   string    `json:"confirm_id,omitempty"`  // unique ID for confirmation flow
+	Description string    `json:"description,omitempty"` // human-readable description of what will happen
+	Usage       *llmUsage `json:"usage,omitempty"`       // token usage stats (sent with done event)
 }
 
 // runAgentLoop orchestrates the LLM agent: sends messages, executes tool calls,
 // and streams the final response via SSE events.
 // confirmedTools contains tool call IDs that the user has already approved (for destructive actions).
-func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confirmedTools map[string]bool, eventCh chan<- sseEvent) {
+func (s *Server) runAgentLoop(ctx context.Context, cfg *config.LLMConfig, history []chatMessage, confirmedTools map[string]bool, eventCh chan<- sseEvent) {
 	var totalUsage llmUsage
 	defer func() {
 		eventCh <- sseEvent{Type: "done", Usage: &totalUsage}
 		close(eventCh)
 	}()
 
-	readOnly := s.cfg.LLM.ReadOnly
+	readOnly := cfg.ReadOnly
 	tools := filterToolsForMode(readOnly)
+	nativeProvider := aiaccess.IsNativeProvider(cfg.Provider)
 
 	messages := make([]chatMessage, 0, len(history)+2)
 	messages = append(messages, chatMessage{Role: "system", Content: ""}) // placeholder, refreshed each iteration
 	messages = append(messages, history...)
-
-	cfg := s.cfg.LLM
 
 	writeIterations := 0
 	for {
@@ -90,13 +91,13 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 
 		// Refresh system prompt with current VM/group state before every LLM call
 		// so the model never works from stale data
-		messages[0].Content = s.buildSystemPrompt()
+		messages[0].Content = s.buildSystemPrompt(readOnly)
 
 		// Trim to keep conversation manageable
 		messages = trimMessages(messages, maxConversationMessages)
 
 		// Non-streaming call (handles tool calls)
-		msg, usage, err := llmChat(ctx, cfg, messages, tools)
+		msg, usage, err := s.llmComplete(ctx, cfg, messages, tools)
 		if usage != nil {
 			totalUsage.PromptTokens += usage.PromptTokens
 			totalUsage.CompletionTokens += usage.CompletionTokens
@@ -113,6 +114,14 @@ func (s *Server) runAgentLoop(ctx context.Context, history []chatMessage, confir
 
 		// If no tool calls, this is the final text response — re-stream it
 		if len(msg.ToolCalls) == 0 {
+			if nativeProvider {
+				if msg.Content != "" {
+					eventCh <- sseEvent{Type: "token", Content: msg.Content}
+				} else {
+					eventCh <- sseEvent{Type: "token", Content: "I encountered an issue processing that request. Please try again."}
+				}
+				return
+			}
 			// If the non-streamed response already has content, try to re-stream
 			// for progressive display. If not, fall back to the non-streamed content.
 			if msg.Content != "" {
@@ -392,7 +401,7 @@ func describeBulkOperation(toolCalls []toolCall) string {
 }
 
 // buildSystemPrompt creates a system message with current VM inventory.
-func (s *Server) buildSystemPrompt() string {
+func (s *Server) buildSystemPrompt(readOnly bool) string {
 	var sb strings.Builder
 	sb.WriteString(`You are an AI assistant for managing Multipass virtual machines via PassGo Web.
 Keep responses concise and helpful.
@@ -491,8 +500,7 @@ RULES:
 
 `)
 
-
-	if s.cfg.LLM.ReadOnly {
+	if readOnly {
 		sb.WriteString("MODE: READ-ONLY. You can only view information. All state-changing actions are disabled.\n\n")
 	}
 

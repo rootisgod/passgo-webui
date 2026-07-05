@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rootisgod/passgo-web/internal/aiaccess"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -22,6 +23,16 @@ type LLMConfig struct {
 	APIKey   string `json:"api_key,omitempty"`
 	Model    string `json:"model"`
 	ReadOnly bool   `json:"read_only,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
+func DefaultLLMConfig() *LLMConfig {
+	defaults := aiaccess.DefaultConfig()
+	return &LLMConfig{
+		BaseURL:  defaults.BaseURL,
+		Model:    defaults.Model,
+		Provider: aiaccess.ProviderVercelGateway,
+	}
 }
 
 type VMDefaults struct {
@@ -633,10 +644,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	if cfg.LLM == nil {
-		cfg.LLM = &LLMConfig{
-			BaseURL: "https://openrouter.ai/api/v1",
-			Model:   "anthropic/claude-sonnet-4",
-		}
+		cfg.LLM = DefaultLLMConfig()
 	}
 	if cfg.PlaybooksDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -722,6 +730,7 @@ func CreateDefault(path string) (*Config, error) {
 		Groups:       []string{},
 		VMGroups:     make(map[string]string),
 		VMTemplates:  make(map[string]bool),
+		LLM:          DefaultLLMConfig(),
 		Profiles:     []Profile{agentReadyProfile},
 		ProxyRules:   []ProxyRule{},
 	}

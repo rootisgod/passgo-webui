@@ -237,6 +237,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("GET /api/v1/chat/config", s.handleGetChatConfig)
 	mux.HandleFunc("PUT /api/v1/chat/config", s.handleUpdateChatConfig)
 	mux.HandleFunc("GET /api/v1/chat/models", s.handleListModels)
+	mux.HandleFunc("GET /api/v1/chat/native-auth", s.handleGetNativeAuthStatus)
 
 	// Shell sessions
 	mux.HandleFunc("POST /api/v1/vms/{name}/shell/sessions", s.handleCreateShellSession)

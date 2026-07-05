@@ -219,6 +219,7 @@ export const deleteShellSession = (vmName, sessionId) => request('DELETE', `/vms
 export const getChatConfig = () => request('GET', '/chat/config')
 export const updateChatConfig = (cfg) => request('PUT', '/chat/config', cfg)
 export const listChatModels = () => request('GET', '/chat/models')
+export const getNativeAuthStatus = () => request('GET', '/chat/native-auth')
 
 // Auth
 export const login = (username, password) => request('POST', '/auth/login', { username, password })

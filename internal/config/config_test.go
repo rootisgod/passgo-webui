@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rootisgod/passgo-web/internal/aiaccess"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -172,6 +173,9 @@ func TestLoad_FillsDefaults(t *testing.T) {
 	}
 	if p, _ := c.GetProfile("agent-ready"); p == nil {
 		t.Error("agent-ready profile should be available by default")
+	}
+	if c.LLM == nil || c.LLM.BaseURL != aiaccess.VercelGatewayBaseURL || c.LLM.Model != aiaccess.VercelGatewayDefaultModel || c.LLM.Provider != aiaccess.ProviderVercelGateway {
+		t.Errorf("LLM default = %+v", c.LLM)
 	}
 }
 
@@ -525,6 +529,9 @@ func TestCreateDefault(t *testing.T) {
 	}
 	if cfg.ProxyRules == nil {
 		t.Error("ProxyRules should be initialized")
+	}
+	if cfg.LLM == nil || cfg.LLM.BaseURL != aiaccess.VercelGatewayBaseURL || cfg.LLM.Model != aiaccess.VercelGatewayDefaultModel || cfg.LLM.Provider != aiaccess.ProviderVercelGateway {
+		t.Errorf("LLM default = %+v", cfg.LLM)
 	}
 
 	// The file should exist on disk.
