@@ -46,7 +46,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate LLM config
-	cfg := s.cfg.LLM
+	cfg := s.configSnapshot().LLM
 	if cfg == nil {
 		writeError(w, http.StatusBadRequest, "LLM not configured. Open Chat Settings to configure.")
 		return
@@ -87,7 +87,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	eventCh := make(chan sseEvent, 64)
-	go s.runAgentLoop(ctx, messages, confirmed, eventCh)
+	go s.runAgentLoop(ctx, cfg, messages, confirmed, eventCh)
 
 	for event := range eventCh {
 		data, err := json.Marshal(event)
@@ -101,7 +101,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 // handleGetChatConfig returns the current LLM configuration (without the API key).
 func (s *Server) handleGetChatConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := s.cfg.LLM
+	cfg := s.configSnapshot().LLM
 	if cfg == nil {
 		cfg = &config.LLMConfig{
 			BaseURL: "https://openrouter.ai/api/v1",
@@ -124,6 +124,8 @@ func (s *Server) handleUpdateChatConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	if s.cfg.LLM == nil {
 		s.cfg.LLM = &config.LLMConfig{}
 	}
@@ -154,18 +156,19 @@ func (s *Server) handleUpdateChatConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, chatConfigResponse{
+	response := chatConfigResponse{
 		BaseURL:   s.cfg.LLM.BaseURL,
 		Model:     s.cfg.LLM.Model,
 		HasAPIKey: s.cfg.LLM.APIKey != "",
 		ReadOnly:  s.cfg.LLM.ReadOnly,
-	})
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // handleListModels proxies to the provider's /models endpoint and returns
 // a normalized list of {id, name} objects.
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	cfg := s.cfg.LLM
+	cfg := s.configSnapshot().LLM
 	if cfg == nil || cfg.BaseURL == "" {
 		writeError(w, http.StatusBadRequest, "LLM provider not configured")
 		return

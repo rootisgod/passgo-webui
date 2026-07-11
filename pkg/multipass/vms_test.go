@@ -2,6 +2,8 @@ package multipass
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -597,6 +599,34 @@ func TestResolveLaunchName_EmptyGetsRandom(t *testing.T) {
 func TestResolveLaunchName_Passthrough(t *testing.T) {
 	if got := ResolveLaunchName("my-vm"); got != "my-vm" {
 		t.Errorf("passthrough: got %q", got)
+	}
+}
+
+func TestCopyForSnapCreatesUniquePrivateFiles(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "cloud-init.yml")
+	if err := os.WriteFile(source, []byte("#cloud-config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := copyForSnap(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(first)
+	second, err := copyForSnap(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(second)
+
+	if first == second {
+		t.Fatal("staged cloud-init paths must be unique")
+	}
+	info, err := os.Stat(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
 }
 

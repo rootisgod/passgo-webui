@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -28,6 +27,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 	if !allowedTools[toolName] {
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
+	cfg := s.configSnapshot()
 
 	switch toolName {
 	case "list_vms":
@@ -134,20 +134,20 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if args.CloudInit != "" {
 			// Check built-in templates first
 			if data, err := s.builtinTemplatesFS.ReadFile("cloud-init/" + args.CloudInit); err == nil {
-				tmp := filepath.Join(os.TempDir(), "passgo-cloudinit-"+args.CloudInit)
-				if err := os.WriteFile(tmp, data, 0600); err != nil {
+				tmp, err := writeTempCloudInit(data)
+				if err != nil {
 					return toolError(fmt.Errorf("failed to prepare cloud-init template: %w", err)), nil
 				}
 				cloudInitFile = tmp
 				tmpCloudInit = tmp
-			} else if s.cfg.CloudInitDir != "" {
+			} else if cfg.CloudInitDir != "" {
 				// Try user templates
-				content, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.CloudInit)
+				content, err := multipass.ReadCloudInitTemplate(cfg.CloudInitDir, args.CloudInit)
 				if err != nil {
 					return toolError(fmt.Errorf("cloud-init template '%s' not found", args.CloudInit)), nil
 				}
-				tmp := filepath.Join(os.TempDir(), "passgo-cloudinit-"+args.CloudInit)
-				if err := os.WriteFile(tmp, []byte(content), 0600); err != nil {
+				tmp, err := writeTempCloudInit([]byte(content))
+				if err != nil {
 					return toolError(fmt.Errorf("failed to prepare cloud-init template: %w", err)), nil
 				}
 				cloudInitFile = tmp
@@ -269,11 +269,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		return toJSON(nets), nil
 
 	case "list_groups":
-		s.cfgMu.Lock()
-		groups := s.cfg.Groups
-		vmGroups := s.cfg.VMGroups
-		s.cfgMu.Unlock()
-		return toJSON(map[string]any{"groups": groups, "vm_groups": vmGroups}), nil
+		return toJSON(map[string]any{"groups": cfg.Groups, "vm_groups": cfg.VMGroups}), nil
 
 	case "create_group":
 		var args struct {
@@ -374,8 +370,8 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 
 	case "list_cloud_init_templates":
 		var dirs []string
-		if s.cfg.CloudInitDir != "" {
-			dirs = append(dirs, s.cfg.CloudInitDir)
+		if cfg.CloudInitDir != "" {
+			dirs = append(dirs, cfg.CloudInitDir)
 		}
 		templates, err := s.mp.GetAllCloudInitTemplates(dirs)
 		if err != nil {
@@ -409,10 +405,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if data, err := s.builtinTemplatesFS.ReadFile("cloud-init/" + args.Name); err == nil {
 			return toJSON(map[string]any{"name": args.Name, "content": string(data), "builtIn": true}), nil
 		}
-		if s.cfg.CloudInitDir == "" {
+		if cfg.CloudInitDir == "" {
 			return toolError(fmt.Errorf("template '%s' not found", args.Name)), nil
 		}
-		content, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name)
+		content, err := multipass.ReadCloudInitTemplate(cfg.CloudInitDir, args.Name)
 		if err != nil {
 			return toolError(err), nil
 		}
@@ -426,7 +422,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		if s.cfg.CloudInitDir == "" {
+		if cfg.CloudInitDir == "" {
 			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
 		}
 		if args.Name == "" || args.Content == "" {
@@ -436,10 +432,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 			return toolError(fmt.Errorf("invalid cloud-init content: %w", err)), nil
 		}
 		// Check if already exists
-		if _, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err == nil {
+		if _, err := multipass.ReadCloudInitTemplate(cfg.CloudInitDir, args.Name); err == nil {
 			return toolError(fmt.Errorf("template '%s' already exists", args.Name)), nil
 		}
-		if err := multipass.WriteCloudInitTemplate(s.cfg.CloudInitDir, args.Name, args.Content); err != nil {
+		if err := multipass.WriteCloudInitTemplate(cfg.CloudInitDir, args.Name, args.Content); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"created","template":"%s"}`, args.Name), nil
@@ -452,7 +448,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		if s.cfg.CloudInitDir == "" {
+		if cfg.CloudInitDir == "" {
 			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
 		}
 		if args.Content == "" {
@@ -462,10 +458,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 			return toolError(fmt.Errorf("invalid cloud-init content: %w", err)), nil
 		}
 		// Verify it exists
-		if _, err := multipass.ReadCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err != nil {
+		if _, err := multipass.ReadCloudInitTemplate(cfg.CloudInitDir, args.Name); err != nil {
 			return toolError(fmt.Errorf("template '%s' not found", args.Name)), nil
 		}
-		if err := multipass.WriteCloudInitTemplate(s.cfg.CloudInitDir, args.Name, args.Content); err != nil {
+		if err := multipass.WriteCloudInitTemplate(cfg.CloudInitDir, args.Name, args.Content); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"updated","template":"%s"}`, args.Name), nil
@@ -477,16 +473,16 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		if s.cfg.CloudInitDir == "" {
+		if cfg.CloudInitDir == "" {
 			return toolError(fmt.Errorf("cloud-init directory not configured")), nil
 		}
-		if err := multipass.DeleteCloudInitTemplate(s.cfg.CloudInitDir, args.Name); err != nil {
+		if err := multipass.DeleteCloudInitTemplate(cfg.CloudInitDir, args.Name); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"deleted","template":"%s"}`, args.Name), nil
 
 	case "list_playbooks":
-		names, err := multipass.ListPlaybooks(s.cfg.PlaybooksDir)
+		names, err := multipass.ListPlaybooks(cfg.PlaybooksDir)
 		if err != nil {
 			return toolError(err), nil
 		}
@@ -506,7 +502,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		content, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name)
+		content, err := multipass.ReadPlaybook(cfg.PlaybooksDir, args.Name)
 		if err != nil {
 			return toolError(err), nil
 		}
@@ -523,10 +519,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if args.Name == "" || args.Content == "" {
 			return toolError(fmt.Errorf("name and content are required")), nil
 		}
-		if _, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name); err == nil {
+		if _, err := multipass.ReadPlaybook(cfg.PlaybooksDir, args.Name); err == nil {
 			return toolError(fmt.Errorf("playbook '%s' already exists", args.Name)), nil
 		}
-		if err := multipass.WritePlaybook(s.cfg.PlaybooksDir, args.Name, args.Content); err != nil {
+		if err := multipass.WritePlaybook(cfg.PlaybooksDir, args.Name, args.Content); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"created","playbook":"%s"}`, args.Name), nil
@@ -542,10 +538,10 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if args.Content == "" {
 			return toolError(fmt.Errorf("content is required")), nil
 		}
-		if _, err := multipass.ReadPlaybook(s.cfg.PlaybooksDir, args.Name); err != nil {
+		if _, err := multipass.ReadPlaybook(cfg.PlaybooksDir, args.Name); err != nil {
 			return toolError(fmt.Errorf("playbook '%s' not found", args.Name)), nil
 		}
-		if err := multipass.WritePlaybook(s.cfg.PlaybooksDir, args.Name, args.Content); err != nil {
+		if err := multipass.WritePlaybook(cfg.PlaybooksDir, args.Name, args.Content); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"updated","playbook":"%s"}`, args.Name), nil
@@ -557,7 +553,7 @@ func (s *Server) executeToolWithProgress(toolName string, argsJSON string, progr
 		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 			return toolError(fmt.Errorf("invalid arguments: %w", err)), nil
 		}
-		if err := multipass.DeletePlaybook(s.cfg.PlaybooksDir, args.Name); err != nil {
+		if err := multipass.DeletePlaybook(cfg.PlaybooksDir, args.Name); err != nil {
 			return toolError(err), nil
 		}
 		return fmt.Sprintf(`{"status":"deleted","playbook":"%s"}`, args.Name), nil

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { defineAsyncComponent, ref, onMounted, onUnmounted } from 'vue'
 import { useVmStore } from './stores/vmStore.js'
 import { useToastStore } from './stores/toastStore.js'
 import { usePolling } from './composables/usePolling.js'
@@ -9,18 +9,19 @@ import LoginPage from './components/LoginPage.vue'
 import AppHeader from './components/layout/AppHeader.vue'
 import TreeSidebar from './components/layout/TreeSidebar.vue'
 import StatusBar from './components/layout/StatusBar.vue'
-import HostPanel from './components/host/HostPanel.vue'
-import VmDetailPanel from './components/vm/VmDetailPanel.vue'
-import CloudInitPanel from './components/cloudinit/CloudInitPanel.vue'
-import SettingsPanel from './components/settings/SettingsPanel.vue'
-import ProfilesPanel from './components/profiles/ProfilesPanel.vue'
-import AnsiblePanel from './components/ansible/AnsiblePanel.vue'
-import SchedulesPanel from './components/schedule/SchedulesPanel.vue'
-import ApiTokensPanel from './components/tokens/ApiTokensPanel.vue'
-import WebhooksPanel from './components/webhooks/WebhooksPanel.vue'
-import EventLogPanel from './components/events/EventLogPanel.vue'
 import Toast from './components/shared/Toast.vue'
-import ChatPanel from './components/chat/ChatPanel.vue'
+
+const HostPanel = defineAsyncComponent(() => import('./components/host/HostPanel.vue'))
+const VmDetailPanel = defineAsyncComponent(() => import('./components/vm/VmDetailPanel.vue'))
+const CloudInitPanel = defineAsyncComponent(() => import('./components/cloudinit/CloudInitPanel.vue'))
+const SettingsPanel = defineAsyncComponent(() => import('./components/settings/SettingsPanel.vue'))
+const ProfilesPanel = defineAsyncComponent(() => import('./components/profiles/ProfilesPanel.vue'))
+const AnsiblePanel = defineAsyncComponent(() => import('./components/ansible/AnsiblePanel.vue'))
+const SchedulesPanel = defineAsyncComponent(() => import('./components/schedule/SchedulesPanel.vue'))
+const ApiTokensPanel = defineAsyncComponent(() => import('./components/tokens/ApiTokensPanel.vue'))
+const WebhooksPanel = defineAsyncComponent(() => import('./components/webhooks/WebhooksPanel.vue'))
+const EventLogPanel = defineAsyncComponent(() => import('./components/events/EventLogPanel.vue'))
+const ChatPanel = defineAsyncComponent(() => import('./components/chat/ChatPanel.vue'))
 
 const store = useVmStore()
 const toast = useToastStore()

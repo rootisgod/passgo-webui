@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/rootisgod/passgo-web/pkg/multipass"
@@ -55,9 +54,7 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 	// Resolve profile if specified: defaults → profile → request overrides
 	var profileGroup, profilePlaybook string
 	if req.Profile != "" {
-		s.cfgMu.Lock()
-		p, _ := s.cfg.GetProfile(req.Profile)
-		s.cfgMu.Unlock()
+		p, _ := s.configSnapshot().GetProfile(req.Profile)
 		if p == nil {
 			writeError(w, http.StatusBadRequest, "profile not found: "+req.Profile)
 			return
@@ -106,8 +103,8 @@ func (s *Server) handleCreateVM(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "built-in template not found: "+templateName)
 			return
 		}
-		tmpFile := filepath.Join(os.TempDir(), "passgo-cloudinit-"+templateName)
-		if err := os.WriteFile(tmpFile, content, 0600); err != nil {
+		tmpFile, err := writeTempCloudInit(content)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to write temp cloud-init file")
 			return
 		}

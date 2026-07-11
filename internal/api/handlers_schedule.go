@@ -22,10 +22,7 @@ func (s *Server) handleScheduleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
-	s.cfgMu.Lock()
-	schedules := s.cfg.GetSchedules()
-	s.cfgMu.Unlock()
-	writeJSON(w, http.StatusOK, schedules)
+	writeJSON(w, http.StatusOK, s.configSnapshot().GetSchedules())
 }
 
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {

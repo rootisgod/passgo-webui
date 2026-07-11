@@ -41,12 +41,13 @@ type ansibleRunStatusResponse struct {
 }
 
 func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := s.configSnapshot()
 	path, err := exec.LookPath("ansible-playbook")
 	if err != nil {
 		writeJSON(w, http.StatusOK, ansibleStatusResponse{
 			Installed:    false,
 			Error:        "ansible-playbook not found in PATH",
-			PlaybooksDir: s.cfg.PlaybooksDir,
+			PlaybooksDir: cfg.PlaybooksDir,
 		})
 		return
 	}
@@ -62,8 +63,8 @@ func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve effective SSH key path
 	sshKeyPath := ""
-	if s.cfg.VMDefaults != nil {
-		sshKeyPath = s.cfg.VMDefaults.SSHPrivateKey
+	if cfg.VMDefaults != nil {
+		sshKeyPath = cfg.VMDefaults.SSHPrivateKey
 	}
 	if sshKeyPath == "" {
 		sshKeyPath = multipass.FindMultipassSSHKey()
@@ -72,7 +73,7 @@ func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ansibleStatusResponse{
 		Installed:    true,
 		Version:      version,
-		PlaybooksDir: s.cfg.PlaybooksDir,
+		PlaybooksDir: cfg.PlaybooksDir,
 		SSHKeyPath:   sshKeyPath,
 	})
 }
@@ -80,6 +81,7 @@ func (s *Server) handleAnsibleStatus(w http.ResponseWriter, r *http.Request) {
 // handleRunPlaybook starts a playbook run. The process runs in the background
 // and survives client disconnects. Use GET /ansible/run/output to stream output.
 func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
+	cfg := s.configSnapshot()
 	// Check if already running
 	if current := s.ansibleRunner.getCurrent(); current != nil {
 		current.mu.Lock()
@@ -111,20 +113,19 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = multipass.ReadPlaybook(s.cfg.PlaybooksDir, req.Playbook)
+	_, err = multipass.ReadPlaybook(cfg.PlaybooksDir, req.Playbook)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "playbook not found")
 		return
 	}
-	playbookPath := filepath.Join(s.cfg.PlaybooksDir, req.Playbook)
+	playbookPath := filepath.Join(cfg.PlaybooksDir, req.Playbook)
 
 	// Resolve target VMs
 	targetVMs := make([]string, len(req.VMs))
 	copy(targetVMs, req.VMs)
 
 	if len(req.Groups) > 0 {
-		s.cfgMu.Lock()
-		for vm, group := range s.cfg.VMGroups {
+		for vm, group := range cfg.VMGroups {
 			for _, g := range req.Groups {
 				if group == g {
 					found := false
@@ -140,14 +141,13 @@ func (s *Server) handleRunPlaybook(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		s.cfgMu.Unlock()
 	}
 
 	// Generate inventory
 	user := "ubuntu"
 	sshKey := ""
-	if s.cfg.VMDefaults != nil {
-		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	if cfg.VMDefaults != nil {
+		sshKey = cfg.VMDefaults.SSHPrivateKey
 	}
 	if sshKey == "" {
 		sshKey = multipass.FindMultipassSSHKey()
@@ -287,23 +287,24 @@ func (s *Server) handleClearAnsibleRunQueue(w http.ResponseWriter, r *http.Reque
 // startPlaybookRun builds the inventory and starts an ansible-playbook execution.
 // Used by both handleRunPlaybook and the queue's startFunc.
 func (s *Server) startPlaybookRun(playbook string, vms []string) {
+	cfg := s.configSnapshot()
 	ansiblePath, err := exec.LookPath("ansible-playbook")
 	if err != nil {
 		s.logger.Error("ansible-playbook not found for queued run", "playbook", playbook)
 		return
 	}
 
-	_, err = multipass.ReadPlaybook(s.cfg.PlaybooksDir, playbook)
+	_, err = multipass.ReadPlaybook(cfg.PlaybooksDir, playbook)
 	if err != nil {
 		s.logger.Error("playbook not found for queued run", "playbook", playbook, "err", err)
 		return
 	}
-	playbookPath := filepath.Join(s.cfg.PlaybooksDir, playbook)
+	playbookPath := filepath.Join(cfg.PlaybooksDir, playbook)
 
 	user := "ubuntu"
 	sshKey := ""
-	if s.cfg.VMDefaults != nil {
-		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	if cfg.VMDefaults != nil {
+		sshKey = cfg.VMDefaults.SSHPrivateKey
 	}
 	if sshKey == "" {
 		sshKey = multipass.FindMultipassSSHKey()

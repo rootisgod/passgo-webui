@@ -21,13 +21,13 @@ type configBundle struct {
 }
 
 type configExport struct {
-	Groups     []string            `json:"groups,omitempty"`
-	VMGroups   map[string]string   `json:"vm_groups,omitempty"`
-	VMDefaults *config.VMDefaults  `json:"vm_defaults,omitempty"`
-	LLM        *llmConfigExport    `json:"llm,omitempty"`
-	Profiles   []config.Profile    `json:"profiles,omitempty"`
-	Schedules  []config.Schedule   `json:"schedules,omitempty"`
-	Webhooks   []webhookExport     `json:"webhooks,omitempty"`
+	Groups     []string           `json:"groups,omitempty"`
+	VMGroups   map[string]string  `json:"vm_groups,omitempty"`
+	VMDefaults *config.VMDefaults `json:"vm_defaults,omitempty"`
+	LLM        *llmConfigExport   `json:"llm,omitempty"`
+	Profiles   []config.Profile   `json:"profiles,omitempty"`
+	Schedules  []config.Schedule  `json:"schedules,omitempty"`
+	Webhooks   []webhookExport    `json:"webhooks,omitempty"`
 }
 
 type webhookExport struct {
@@ -47,16 +47,16 @@ type llmConfigExport struct {
 }
 
 func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
-	s.cfgMu.Lock()
+	cfg := s.configSnapshot()
 	export := &configExport{
-		Groups:     s.cfg.Groups,
-		VMGroups:   s.cfg.VMGroups,
-		VMDefaults: s.cfg.VMDefaults,
-		Profiles:   s.cfg.GetProfiles(),
-		Schedules:  s.cfg.GetSchedules(),
+		Groups:     cfg.Groups,
+		VMGroups:   cfg.VMGroups,
+		VMDefaults: cfg.VMDefaults,
+		Profiles:   cfg.GetProfiles(),
+		Schedules:  cfg.GetSchedules(),
 	}
 	// Export webhooks without secrets
-	webhooks := s.cfg.GetWebhooks()
+	webhooks := cfg.GetWebhooks()
 	if len(webhooks) > 0 {
 		whExport := make([]webhookExport, len(webhooks))
 		for i, wh := range webhooks {
@@ -73,16 +73,15 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 		export.Webhooks = whExport
 	}
 
-	if s.cfg.LLM != nil {
+	if cfg.LLM != nil {
 		export.LLM = &llmConfigExport{
-			BaseURL:  s.cfg.LLM.BaseURL,
-			Model:    s.cfg.LLM.Model,
-			ReadOnly: s.cfg.LLM.ReadOnly,
+			BaseURL:  cfg.LLM.BaseURL,
+			Model:    cfg.LLM.Model,
+			ReadOnly: cfg.LLM.ReadOnly,
 		}
 	}
-	cloudInitDir := s.cfg.CloudInitDir
-	playbooksDir := s.cfg.PlaybooksDir
-	s.cfgMu.Unlock()
+	cloudInitDir := cfg.CloudInitDir
+	playbooksDir := cfg.PlaybooksDir
 
 	// Read user cloud-init templates
 	templates := make(map[string]string)

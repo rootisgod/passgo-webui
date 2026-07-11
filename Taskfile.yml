@@ -109,7 +109,7 @@ tasks:
     dir: frontend
     deps: [frontend-install]
     cmds:
-      - npx vitest run
+      - npm test
 
   test-all:
     desc: Run all tests (Go + frontend)
@@ -193,17 +193,19 @@ tasks:
   update-binary-linux:
     desc: Download latest release from GitHub, stop service, replace binary, start service
     cmds:
-      - echo "Downloading latest release..."
-      - curl -sL "https://github.com/rootisgod/passgo-webui/releases/latest/download/passgo-web-linux-amd64" -o /tmp/passgo-web-linux-amd64
-      - chmod +x /tmp/passgo-web-linux-amd64
-      - echo "Stopping service..."
-      - systemctl stop passgo-web
-      - cp /tmp/passgo-web-linux-amd64 /usr/local/bin/passgo-web
-      - rm /tmp/passgo-web-linux-amd64
-      - echo "Starting service..."
-      - systemctl start passgo-web
-      - echo "Update complete. New version:"
-      - /usr/local/bin/passgo-web --version || true
+      - |
+        set -eu
+        tmp_dir="$(mktemp -d)"
+        trap 'rm -rf "$tmp_dir"' EXIT
+        base_url="https://github.com/rootisgod/passgo-webui/releases/latest/download"
+        curl --fail --silent --show-error --location "$base_url/passgo-web-linux-amd64" -o "$tmp_dir/passgo-web-linux-amd64"
+        curl --fail --silent --show-error --location "$base_url/passgo-web-linux-amd64.sha256" -o "$tmp_dir/passgo-web-linux-amd64.sha256"
+        cd "$tmp_dir"
+        sha256sum -c passgo-web-linux-amd64.sha256
+        systemctl stop passgo-web
+        install -m 0755 passgo-web-linux-amd64 /usr/local/bin/passgo-web
+        systemctl start passgo-web
+        /usr/local/bin/passgo-web --version
 
   # --- Clean ---
 

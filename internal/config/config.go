@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,11 +24,11 @@ type LLMConfig struct {
 }
 
 type VMDefaults struct {
-	CPUs           int    `json:"cpus"`
-	MemoryMB       int    `json:"memory_mb"`
-	DiskGB         int    `json:"disk_gb"`
-	SSHPublicKey   string `json:"ssh_public_key,omitempty"`
-	SSHPrivateKey  string `json:"ssh_private_key,omitempty"`
+	CPUs          int    `json:"cpus"`
+	MemoryMB      int    `json:"memory_mb"`
+	DiskGB        int    `json:"disk_gb"`
+	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
 }
 
 type Profile struct {
@@ -187,6 +189,43 @@ type Config struct {
 	Schedules     []Schedule        `json:"schedules,omitempty"`
 	APITokens     []APIToken        `json:"api_tokens,omitempty"`
 	Webhooks      []Webhook         `json:"webhooks,omitempty"`
+}
+
+// Clone returns a deep copy that callers can safely use after releasing the
+// server's config lock.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	clone.Groups = append([]string(nil), c.Groups...)
+	clone.VMGroups = make(map[string]string, len(c.VMGroups))
+	for vm, group := range c.VMGroups {
+		clone.VMGroups[vm] = group
+	}
+	if c.LLM != nil {
+		llm := *c.LLM
+		clone.LLM = &llm
+	}
+	if c.VMDefaults != nil {
+		defaults := *c.VMDefaults
+		clone.VMDefaults = &defaults
+	}
+	clone.Profiles = append([]Profile(nil), c.Profiles...)
+	clone.Schedules = make([]Schedule, len(c.Schedules))
+	for i, schedule := range c.Schedules {
+		clone.Schedules[i] = schedule
+		clone.Schedules[i].Days = append([]int(nil), schedule.Days...)
+		clone.Schedules[i].VMs = append([]string(nil), schedule.VMs...)
+	}
+	clone.APITokens = append([]APIToken(nil), c.APITokens...)
+	clone.Webhooks = make([]Webhook, len(c.Webhooks))
+	for i, webhook := range c.Webhooks {
+		clone.Webhooks[i] = webhook
+		clone.Webhooks[i].Categories = append([]string(nil), webhook.Categories...)
+		clone.Webhooks[i].Results = append([]string(nil), webhook.Results...)
+	}
+	return &clone
 }
 
 func (c *Config) GetProfiles() []Profile {
@@ -381,7 +420,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if cfg.Listen == "" {
-		cfg.Listen = ":8080"
+		cfg.Listen = "127.0.0.1:8080"
 	}
 	if cfg.CloudInitDir == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -392,7 +431,7 @@ func Load(path string) (*Config, error) {
 		cfg.Username = "admin"
 	}
 	if cfg.Password == "" {
-		cfg.Password = "admin"
+		return nil, fmt.Errorf("password is required in the config")
 	}
 	if cfg.Groups == nil {
 		cfg.Groups = []string{}
@@ -472,25 +511,35 @@ func (c *Config) Save(path string) error {
 	return nil
 }
 
-func CreateDefault(path string) (*Config, error) {
+func CreateDefault(path, initialPassword string) (*Config, string, error) {
 	home, _ := os.UserHomeDir()
 	cloudInitDir := filepath.Join(home, ".passgo-web", "cloud-init")
 
-	hashed, err := HashPassword("admin")
+	bootstrapPassword := ""
+	if initialPassword == "" {
+		secret := make([]byte, 24)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, "", fmt.Errorf("generate bootstrap password: %w", err)
+		}
+		bootstrapPassword = base64.RawURLEncoding.EncodeToString(secret)
+		initialPassword = bootstrapPassword
+	}
+
+	hashed, err := HashPassword(initialPassword)
 	if err != nil {
-		return nil, fmt.Errorf("hash default password: %w", err)
+		return nil, "", fmt.Errorf("hash initial password: %w", err)
 	}
 
 	cfg := &Config{
-		Listen:       ":8080",
+		Listen:       "127.0.0.1:8080",
 		CloudInitDir: cloudInitDir,
 		Username:     "admin",
 		Password:     hashed,
 	}
 	if err := cfg.Save(path); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return cfg, nil
+	return cfg, bootstrapPassword, nil
 }
 
 // HashPassword returns the bcrypt hash of the given password.

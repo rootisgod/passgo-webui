@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -63,12 +65,17 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("no config found, creating default", "path", configPath)
-		cfg, err = config.CreateDefault(configPath)
+		var bootstrapPassword string
+		cfg, bootstrapPassword, err = config.CreateDefault(configPath, password)
 		if err != nil {
 			logger.Error("failed to create config", "err", err)
 			os.Exit(1)
 		}
 		fmt.Printf("Config: %s\n", configPath)
+		if bootstrapPassword != "" {
+			fmt.Printf("Initial login: admin / %s\n", bootstrapPassword)
+			fmt.Println("This password is shown once. Store it before restarting the server.")
+		}
 	}
 
 	// Auto-migrate plaintext passwords to bcrypt (plaintext login no longer supported)
@@ -80,7 +87,7 @@ func main() {
 
 	// Override from flags
 	if port > 0 {
-		cfg.Listen = fmt.Sprintf(":%d", port)
+		cfg.Listen = listenWithPort(cfg.Listen, port)
 	}
 	if username != "" {
 		cfg.Username = username
@@ -117,7 +124,11 @@ func main() {
 
 	fmt.Printf("PassGo Web %s\n", Version)
 	fmt.Printf("Config: %s\n", configPath)
-	fmt.Printf("Listening on http://0.0.0.0%s\n", listen)
+	displayListen := listen
+	if strings.HasPrefix(displayListen, ":") {
+		displayListen = "0.0.0.0" + displayListen
+	}
+	fmt.Printf("Listening on http://%s\n", displayListen)
 
 	// Explicit server with timeouts. No WriteTimeout: shell WebSockets and
 	// LLM chat SSE are long-lived writes; per-request timeouts handle those.
@@ -147,6 +158,14 @@ func main() {
 		logger.Error("server failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+func listenWithPort(listen string, port int) string {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // spaHandler serves the SPA — returns index.html for any path that doesn't match a real file.

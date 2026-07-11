@@ -1,14 +1,15 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { defineAsyncComponent, ref, watch } from 'vue'
 import { useVmStore } from '../../stores/vmStore.js'
 import VmSummaryTab from './VmSummaryTab.vue'
-import VmConsoleTab from './VmConsoleTab.vue'
-import VmSnapshotsTab from './VmSnapshotsTab.vue'
-import VmMountsTab from './VmMountsTab.vue'
-import VmTransferTab from './VmTransferTab.vue'
-import VmConfigTab from './VmConfigTab.vue'
-import VmAnsibleTab from './VmAnsibleTab.vue'
-import VmVncConsoleTab from './VmVncConsoleTab.vue'
+
+const VmConsoleTab = defineAsyncComponent(() => import('./VmConsoleTab.vue'))
+const VmSnapshotsTab = defineAsyncComponent(() => import('./VmSnapshotsTab.vue'))
+const VmMountsTab = defineAsyncComponent(() => import('./VmMountsTab.vue'))
+const VmTransferTab = defineAsyncComponent(() => import('./VmTransferTab.vue'))
+const VmConfigTab = defineAsyncComponent(() => import('./VmConfigTab.vue'))
+const VmAnsibleTab = defineAsyncComponent(() => import('./VmAnsibleTab.vue'))
+const VmVncConsoleTab = defineAsyncComponent(() => import('./VmVncConsoleTab.vue'))
 
 const store = useVmStore()
 const activeTab = ref('summary')

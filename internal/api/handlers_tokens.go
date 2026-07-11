@@ -28,9 +28,7 @@ type tokenCreateResponse struct {
 }
 
 func (srv *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
-	srv.cfgMu.Lock()
-	tokens := srv.cfg.GetAPITokens()
-	srv.cfgMu.Unlock()
+	tokens := srv.configSnapshot().GetAPITokens()
 
 	resp := make([]tokenResponse, len(tokens))
 	for i, t := range tokens {

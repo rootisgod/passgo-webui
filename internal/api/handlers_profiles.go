@@ -8,10 +8,7 @@ import (
 )
 
 func (s *Server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
-	s.cfgMu.Lock()
-	profiles := s.cfg.GetProfiles()
-	s.cfgMu.Unlock()
-	writeJSON(w, http.StatusOK, profiles)
+	writeJSON(w, http.StatusOK, s.configSnapshot().GetProfiles())
 }
 
 func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {

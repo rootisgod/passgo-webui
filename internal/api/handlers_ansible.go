@@ -22,14 +22,9 @@ func (s *Server) generateInventoryYAML(filterVMs []string, user, sshKeyPath stri
 		return "", fmt.Errorf("failed to list VMs: %w", err)
 	}
 
-	s.cfgMu.Lock()
-	groups := make([]string, len(s.cfg.Groups))
-	copy(groups, s.cfg.Groups)
-	vmGroups := make(map[string]string, len(s.cfg.VMGroups))
-	for k, v := range s.cfg.VMGroups {
-		vmGroups[k] = v
-	}
-	s.cfgMu.Unlock()
+	cfg := s.configSnapshot()
+	groups := cfg.Groups
+	vmGroups := cfg.VMGroups
 
 	// Build filter set
 	filterSet := make(map[string]bool, len(filterVMs))
@@ -103,8 +98,8 @@ func (s *Server) handleAnsibleInventory(w http.ResponseWriter, r *http.Request) 
 		user = "ubuntu"
 	}
 	sshKey := r.URL.Query().Get("ssh_key")
-	if sshKey == "" && s.cfg.VMDefaults != nil {
-		sshKey = s.cfg.VMDefaults.SSHPrivateKey
+	if defaults := s.configSnapshot().VMDefaults; sshKey == "" && defaults != nil {
+		sshKey = defaults.SSHPrivateKey
 	}
 	if sshKey == "" {
 		sshKey = multipass.FindMultipassSSHKey()

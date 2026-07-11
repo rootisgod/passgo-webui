@@ -24,11 +24,11 @@ const (
 type Event struct {
 	ID        string `json:"id"`
 	Timestamp string `json:"timestamp"`
-	Category  string `json:"category"`           // "vm", "schedule", "ansible", "llm", "config"
+	Category  string `json:"category"` // "vm", "schedule", "ansible", "llm", "config"
 	Action    string `json:"action"`
-	Actor     string `json:"actor"`              // "user", "scheduler", "llm_agent"
+	Actor     string `json:"actor"` // "user", "scheduler", "llm_agent"
 	Resource  string `json:"resource"`
-	Result    string `json:"result"`             // "success", "failed", "partial"
+	Result    string `json:"result"` // "success", "failed", "partial"
 	Detail    string `json:"detail,omitempty"`
 	Endpoint  string `json:"endpoint,omitempty"` // "POST /api/v1/vms/{name}/start"
 }
@@ -267,26 +267,25 @@ func (el *EventLog) scanFile(opts QueryOpts, total int) QueryResult {
 	var all []Event
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 512*1024)
-	beforeFound := opts.Before == ""
+	cursorFound := opts.Before == ""
 	for scanner.Scan() {
 		var e Event
 		if json.Unmarshal(scanner.Bytes(), &e) != nil {
 			continue
 		}
-		if !beforeFound {
-			if e.ID == opts.Before {
-				beforeFound = true
-			}
-			continue
-		}
-		// Skip the cursor event itself
-		if e.ID == opts.Before {
-			continue
+		// The file is oldest-first. Stop at the cursor so only older events
+		// collected before it are returned.
+		if opts.Before != "" && e.ID == opts.Before {
+			cursorFound = true
+			break
 		}
 		if !el.matchesFilters(e, opts) {
 			continue
 		}
 		all = append(all, e)
+	}
+	if !cursorFound {
+		all = nil
 	}
 
 	// Reverse to newest-first

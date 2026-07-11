@@ -1,29 +1,72 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
 
-func TestFirstSafeIPv4ChoosesPrivateAddress(t *testing.T) {
-	host, ok := firstSafeIPv4([]string{"", "fe80::1", "10.42.0.15"})
-	if !ok {
-		t.Fatal("expected private IPv4 to be accepted")
+	"github.com/rootisgod/passgo-web/pkg/multipass"
+)
+
+func newVNCServer(t *testing.T, responses map[string]string) *Server {
+	t.Helper()
+	runner := func(args ...string) (string, error) {
+		key := strings.Join(args, " ")
+		if response, ok := responses[key]; ok {
+			return response, nil
+		}
+		t.Fatalf("unexpected multipass call: %s", key)
+		return "", nil
 	}
-	if host != "10.42.0.15" {
-		t.Fatalf("host = %q, want 10.42.0.15", host)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &Server{mp: multipass.NewClientWithRunner(logger, runner), logger: logger}
+}
+
+func TestGetVNCConsoleReturnsTunnelDetails(t *testing.T) {
+	srv := newVNCServer(t, map[string]string{
+		"info desktop --format json":             `{"info":{"desktop":{"state":"Running"}}}`,
+		"exec desktop -- cat " + vncPasswordPath: "random-password\n",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/vms/desktop/vnc", nil)
+	req.SetPathValue("name", "desktop")
+	rr := httptest.NewRecorder()
+
+	srv.handleGetVNCConsole(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+	var response vncConsoleResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Available || response.Password != "random-password" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if response.URL != "/api/v1/vms/desktop/vnc/websocket" {
+		t.Fatalf("url = %q", response.URL)
 	}
 }
 
-func TestFirstSafeIPv4HandlesCIDRAddresses(t *testing.T) {
-	host, ok := firstSafeIPv4([]string{"192.168.64.23/24"})
-	if !ok {
-		t.Fatal("expected CIDR IPv4 to be accepted")
-	}
-	if host != "192.168.64.23" {
-		t.Fatalf("host = %q, want 192.168.64.23", host)
-	}
-}
+func TestGetVNCConsoleRequiresRunningVM(t *testing.T) {
+	srv := newVNCServer(t, map[string]string{
+		"info desktop --format json": `{"info":{"desktop":{"state":"Stopped"}}}`,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/vms/desktop/vnc", nil)
+	req.SetPathValue("name", "desktop")
+	rr := httptest.NewRecorder()
 
-func TestFirstSafeIPv4RejectsPublicAndInvalidAddresses(t *testing.T) {
-	if host, ok := firstSafeIPv4([]string{"8.8.8.8", "not-an-ip", "2001:db8::1"}); ok {
-		t.Fatalf("expected no safe host, got %q", host)
+	srv.handleGetVNCConsole(rr, req)
+
+	var response vncConsoleResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Available || !strings.Contains(response.Message, "running") {
+		t.Fatalf("unexpected response: %+v", response)
 	}
 }

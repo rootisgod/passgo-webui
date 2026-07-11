@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,12 +22,40 @@ func copyForSnap(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := "/var/snap/multipass/common"
-	if _, err := os.Stat(dir); err != nil {
-		dir = os.TempDir() // non-snap installs
+	dirs := []string{"/var/snap/multipass/common"}
+	if home, err := os.UserHomeDir(); err == nil {
+		userSnapDir := filepath.Join(home, "snap", "multipass", "common")
+		if _, err := os.Stat(userSnapDir); err == nil {
+			dirs = append(dirs, userSnapDir)
+		}
 	}
-	dst := filepath.Join(dir, "passgo-cloud-init-"+filepath.Base(src))
-	if err := os.WriteFile(dst, data, 0644); err != nil {
+	dirs = append(dirs, os.TempDir())
+
+	var file *os.File
+	for _, dir := range dirs {
+		file, err = os.CreateTemp(dir, "passgo-cloud-init-*.yml")
+		if err == nil {
+			break
+		}
+	}
+	if file == nil {
+		return "", fmt.Errorf("create staged cloud-init file: %w", err)
+	}
+	dst := file.Name()
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(dst)
+	}
+	if err := file.Chmod(0600); err != nil {
+		cleanup()
+		return "", err
+	}
+	if _, err := file.Write(data); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(dst)
 		return "", err
 	}
 	return dst, nil
@@ -347,7 +377,7 @@ func (c *Client) ExecInVMWithContext(ctx context.Context, vmName string, command
 		return "", err
 	}
 	args := append([]string{"exec", vmName, "--"}, command...)
-	return c.runWithContext(ctx, args...)
+	return c.runContext(ctx, args...)
 }
 
 // ExecInVMStreaming runs a command inside a VM, streaming stdout lines to a callback.
@@ -357,6 +387,27 @@ func (c *Client) ExecInVMStreaming(ctx context.Context, vmName string, command [
 	}
 	args := append([]string{"exec", vmName, "--"}, command...)
 	return c.runStreamingContext(ctx, onLine, args...)
+}
+
+// ProxyVNC bridges a raw byte stream to the guest's loopback-only VNC server.
+// The VNC port never needs to listen on the VM network.
+func (c *Client) ProxyVNC(ctx context.Context, vmName string, stream io.ReadWriter) error {
+	if err := ValidateVMName(vmName); err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, "multipass", "exec", vmName, "--", "nc", "127.0.0.1", "5901")
+	cmd.Stdin = stream
+	cmd.Stdout = stream
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("proxy VNC: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 // VMConfig holds the configured (not runtime) resource specs for a VM.
@@ -513,10 +564,10 @@ func (c *Client) GetRawInfo(name string) (string, error) {
 
 // CloudInitStatus represents the status of cloud-init inside a VM.
 type CloudInitStatus struct {
-	Status string `json:"status"` // "running", "done", "error", "disabled", "not started"
-	Detail string `json:"detail"`
+	Status string   `json:"status"` // "running", "done", "error", "disabled", "not started"
+	Detail string   `json:"detail"`
 	Errors []string `json:"errors,omitempty"`
-	Output string `json:"output,omitempty"` // last N lines of cloud-init output log
+	Output string   `json:"output,omitempty"` // last N lines of cloud-init output log
 }
 
 // GetCloudInitStatus checks the cloud-init status inside a running VM.

@@ -1,10 +1,8 @@
 #cloud-config
 
-# Ubuntu desktop + noVNC console for PassGo Web.
-#
-# Creates an XFCE desktop reachable through noVNC on http://<vm-ip>:6080/.
-# The PassGo Web VNC tab reverse-proxies this endpoint. Default VNC password: passgo
-# Intended for trusted homelab/internal networks only; change the password for wider exposure.
+# Ubuntu desktop with a loopback-only TigerVNC server for PassGo Web.
+# PassGo tunnels raw RFB traffic through `multipass exec`; no guest web server
+# or VNC port is exposed on the VM network.
 
 package_update: true
 
@@ -13,8 +11,8 @@ packages:
   - xfce4-goodies
   - dbus-x11
   - tigervnc-standalone-server
-  - novnc
-  - websockify
+  - netcat-openbsd
+  - openssl
 
 write_files:
   - path: /home/ubuntu/.config/tigervnc/xstartup
@@ -48,30 +46,12 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  - path: /etc/systemd/system/passgo-novnc.service
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=PassGo noVNC web console
-      After=passgo-vnc.service
-      Requires=passgo-vnc.service
-
-      [Service]
-      Type=simple
-      ExecStart=/usr/bin/websockify --web=/usr/share/novnc 0.0.0.0:6080 127.0.0.1:5901
-      Restart=on-failure
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
 runcmd:
   - [ install, -d, -o, ubuntu, -g, ubuntu, -m, '0700', /home/ubuntu/.config/tigervnc ]
-  - [ bash, -lc, 'printf "passgo\n" | vncpasswd -f > /home/ubuntu/.config/tigervnc/passwd' ]
-  - [ chown, ubuntu:ubuntu, /home/ubuntu/.config/tigervnc/passwd ]
-  - [ chmod, '0600', /home/ubuntu/.config/tigervnc/passwd ]
+  - [ bash, -lc, 'password="$(openssl rand -base64 6)"; printf "%s\n" "$password" | vncpasswd -f > /home/ubuntu/.config/tigervnc/passwd; printf "%s\n" "$password" > /home/ubuntu/.config/tigervnc/passgo-password' ]
+  - [ chown, ubuntu:ubuntu, /home/ubuntu/.config/tigervnc/passwd, /home/ubuntu/.config/tigervnc/passgo-password ]
+  - [ chmod, '0600', /home/ubuntu/.config/tigervnc/passwd, /home/ubuntu/.config/tigervnc/passgo-password ]
   - [ systemctl, daemon-reload ]
   - [ systemctl, enable, --now, passgo-vnc.service ]
-  - [ systemctl, enable, --now, passgo-novnc.service ]
 
-final_message: "PassGo noVNC desktop ready on port 6080 after $UPTIME seconds"
+final_message: "PassGo desktop ready after $UPTIME seconds"

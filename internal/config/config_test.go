@@ -62,6 +62,35 @@ func TestSaveLoad_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestCloneIsDeepCopy(t *testing.T) {
+	original := &Config{
+		Groups:    []string{"group-a"},
+		VMGroups:  map[string]string{"vm-a": "group-a"},
+		LLM:       &LLMConfig{BaseURL: "https://example.com"},
+		Schedules: []Schedule{{ID: "schedule-a", Days: []int{1}, VMs: []string{"vm-a"}}},
+		Webhooks:  []Webhook{{ID: "webhook-a", Categories: []string{"vm"}, Results: []string{"success"}}},
+	}
+
+	clone := original.Clone()
+	clone.Groups[0] = "changed"
+	clone.VMGroups["vm-a"] = "changed"
+	clone.LLM.BaseURL = "https://changed.example"
+	clone.Schedules[0].Days[0] = 2
+	clone.Schedules[0].VMs[0] = "vm-b"
+	clone.Webhooks[0].Categories[0] = "config"
+	clone.Webhooks[0].Results[0] = "failed"
+
+	if original.Groups[0] != "group-a" || original.VMGroups["vm-a"] != "group-a" {
+		t.Fatal("clone mutated original group data")
+	}
+	if original.LLM.BaseURL != "https://example.com" || original.Schedules[0].Days[0] != 1 || original.Schedules[0].VMs[0] != "vm-a" {
+		t.Fatal("clone mutated original nested data")
+	}
+	if original.Webhooks[0].Categories[0] != "vm" || original.Webhooks[0].Results[0] != "success" {
+		t.Fatal("clone mutated original webhook data")
+	}
+}
+
 // --- Atomic save behavior ---
 
 func TestSave_NoStrayTmpFile(t *testing.T) {
@@ -129,24 +158,34 @@ func TestLoad_MissingFile(t *testing.T) {
 func TestLoad_FillsDefaults(t *testing.T) {
 	// Write a minimal config and verify defaults are filled on Load.
 	path := filepath.Join(t.TempDir(), "c.json")
-	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"password":"secret"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	c, err := Load(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if c.Listen != ":8080" {
+	if c.Listen != "127.0.0.1:8080" {
 		t.Errorf("Listen default: got %q", c.Listen)
 	}
 	if c.Username != "admin" {
 		t.Errorf("Username default: got %q", c.Username)
 	}
-	if c.Password != "admin" {
+	if c.Password != "secret" {
 		t.Errorf("Password default: got %q", c.Password)
 	}
 	if c.Groups == nil {
 		t.Error("Groups should default to empty slice, not nil")
+	}
+}
+
+func TestLoad_RejectsMissingPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected missing password to be rejected")
 	}
 }
 
@@ -407,23 +446,43 @@ func TestAPITokenCRUD(t *testing.T) {
 
 func TestCreateDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.json")
-	cfg, err := CreateDefault(path)
+	cfg, bootstrapPassword, err := CreateDefault(path, "")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if cfg.Username != "admin" {
 		t.Errorf("username: %q", cfg.Username)
 	}
-	// Default password must be bcrypt-hashed, not literal "admin".
+	if bootstrapPassword == "" || bootstrapPassword == "admin" {
+		t.Fatalf("unexpected bootstrap password %q", bootstrapPassword)
+	}
+	if cfg.Listen != "127.0.0.1:8080" {
+		t.Errorf("listen: %q", cfg.Listen)
+	}
+	// The generated password must only be stored as a bcrypt hash.
 	if !strings.HasPrefix(cfg.Password, "$2") {
 		t.Errorf("expected bcrypt password, got %q", cfg.Password)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(cfg.Password), []byte("admin")); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(cfg.Password), []byte(bootstrapPassword)); err != nil {
 		t.Errorf("default password doesn't verify: %v", err)
 	}
 
 	// The file should exist on disk.
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("file not created: %v", err)
+	}
+}
+
+func TestCreateDefault_UsesProvidedPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.json")
+	cfg, bootstrapPassword, err := CreateDefault(path, "provided-secret")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if bootstrapPassword != "" {
+		t.Fatalf("unexpected generated password %q", bootstrapPassword)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(cfg.Password), []byte("provided-secret")); err != nil {
+		t.Errorf("provided password doesn't verify: %v", err)
 	}
 }

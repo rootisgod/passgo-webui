@@ -15,22 +15,32 @@ import (
 // CommandRunner executes a multipass CLI command and returns stdout.
 type CommandRunner func(args ...string) (string, error)
 
+type ContextCommandRunner func(ctx context.Context, args ...string) (string, error)
+
 // Client wraps the multipass CLI.
 type Client struct {
-	logger *slog.Logger
-	run    CommandRunner
+	logger     *slog.Logger
+	run        CommandRunner
+	runContext ContextCommandRunner
 }
 
 // NewClient creates a Client that calls the real multipass binary.
 func NewClient(logger *slog.Logger) *Client {
 	c := &Client{logger: logger}
 	c.run = c.defaultRunner
+	c.runContext = c.runWithContext
 	return c
 }
 
 // NewClientWithRunner creates a Client with a custom command runner (for testing).
 func NewClientWithRunner(logger *slog.Logger, runner CommandRunner) *Client {
-	return &Client{logger: logger, run: runner}
+	return &Client{
+		logger: logger,
+		run:    runner,
+		runContext: func(_ context.Context, args ...string) (string, error) {
+			return runner(args...)
+		},
+	}
 }
 
 func (c *Client) defaultRunner(args ...string) (string, error) {

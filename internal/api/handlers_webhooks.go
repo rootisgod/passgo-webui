@@ -35,9 +35,7 @@ func toWebhookResponse(wh config.Webhook) webhookResponse {
 }
 
 func (srv *Server) handleListWebhooks(w http.ResponseWriter, r *http.Request) {
-	srv.cfgMu.Lock()
-	webhooks := srv.cfg.GetWebhooks()
-	srv.cfgMu.Unlock()
+	webhooks := srv.configSnapshot().GetWebhooks()
 
 	resp := make([]webhookResponse, len(webhooks))
 	for i, wh := range webhooks {

@@ -2,125 +2,83 @@ package api
 
 import (
 	"context"
-	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/netip"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
-const defaultNoVNCPort = "6080"
+const vncPasswordPath = "/home/ubuntu/.config/tigervnc/passgo-password"
 
 type vncConsoleResponse struct {
 	Available bool   `json:"available"`
 	URL       string `json:"url,omitempty"`
-	Host      string `json:"host,omitempty"`
-	Port      string `json:"port,omitempty"`
+	Password  string `json:"password,omitempty"`
 	Message   string `json:"message,omitempty"`
 }
 
 func (s *Server) handleGetVNCConsole(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	name, ok := validVMName(w, r, "name")
 	if !ok {
 		return
 	}
 
-	host, message, ok := s.vncHostForVM(name)
-	if !ok {
-		writeJSON(w, http.StatusOK, vncConsoleResponse{Available: false, Port: defaultNoVNCPort, Message: message})
-		return
-	}
-
-	available := canConnect(r.Context(), net.JoinHostPort(host, defaultNoVNCPort), 700*time.Millisecond)
-	resp := vncConsoleResponse{
-		Available: available,
-		URL:       "/api/v1/vms/" + url.PathEscape(name) + "/vnc/proxy/vnc.html?autoconnect=true&resize=remote",
-		Host:      host,
-		Port:      defaultNoVNCPort,
-	}
-	if !available {
-		resp.Message = "VM has an IP, but no noVNC service responded on port " + defaultNoVNCPort + ". Install/start noVNC inside the Ubuntu VM, or use a cloud-init profile that exposes it."
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func (s *Server) handleVNCProxy(w http.ResponseWriter, r *http.Request) {
-	name, ok := validVMName(w, r, "name")
-	if !ok {
-		return
-	}
-
-	host, message, ok := s.vncHostForVM(name)
-	if !ok {
-		writeError(w, http.StatusBadGateway, message)
-		return
-	}
-
-	target := &url.URL{Scheme: "http", Host: net.JoinHostPort(host, defaultNoVNCPort)}
-	prefix := "/api/v1/vms/" + url.PathEscape(name) + "/vnc/proxy"
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.Host = target.Host
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-	}
-	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
-		writeError(rw, http.StatusBadGateway, "failed to reach noVNC on "+target.Host+": "+err.Error())
-	}
-	proxy.ServeHTTP(w, r)
-}
-
-func (s *Server) vncHostForVM(name string) (string, string, bool) {
 	vm, err := s.mp.GetVMInfo(name)
 	if err != nil {
-		return "", err.Error(), false
+		writeError(w, http.StatusNotFound, err.Error())
+		return
 	}
 	if vm.State != "Running" {
-		return "", "VM must be running before opening a graphical console", false
+		writeJSON(w, http.StatusOK, vncConsoleResponse{
+			Message: "VM must be running before opening a graphical console",
+		})
+		return
 	}
-	host, ok := firstSafeIPv4(vm.IPv4)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	password, err := s.mp.ExecInVMWithContext(ctx, name, []string{"cat", vncPasswordPath})
+	if err != nil || strings.TrimSpace(password) == "" {
+		writeJSON(w, http.StatusOK, vncConsoleResponse{
+			Message: "PassGo VNC is not configured in this VM. Reprovision it with the current Ubuntu desktop template.",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, vncConsoleResponse{
+		Available: true,
+		URL:       "/api/v1/vms/" + url.PathEscape(name) + "/vnc/websocket",
+		Password:  strings.TrimSpace(password),
+	})
+}
+
+func (s *Server) handleVNCWebSocket(w http.ResponseWriter, r *http.Request) {
+	name, ok := validVMName(w, r, "name")
 	if !ok {
-		return "", "VM does not have a usable IPv4 address yet", false
+		return
 	}
-	return host, "", true
-}
 
-func firstSafeIPv4(values []string) (string, bool) {
-	for _, raw := range values {
-		candidate := strings.TrimSpace(raw)
-		if candidate == "" || candidate == "--" || candidate == "N/A" {
-			continue
-		}
-		if strings.Contains(candidate, "/") {
-			if prefix, err := netip.ParsePrefix(candidate); err == nil {
-				candidate = prefix.Addr().String()
-			}
-		}
-		addr, err := netip.ParseAddr(candidate)
-		if err != nil || !addr.Is4() {
-			continue
-		}
-		if addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() {
-			return addr.String(), true
-		}
+	vm, err := s.mp.GetVMInfo(name)
+	if err != nil || vm.State != "Running" {
+		writeError(w, http.StatusConflict, "VM must be running before opening a graphical console")
+		return
 	}
-	return "", false
-}
 
-func canConnect(ctx context.Context, address string, timeout time.Duration) bool {
-	dialer := net.Dialer{Timeout: timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", address)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: allowedOriginPatterns(r.Host),
+	})
 	if err != nil {
-		return false
+		s.logger.Error("VNC websocket accept failed", "err", err, "vm", name)
+		return
 	}
-	_ = conn.Close()
-	return true
+
+	netConn := websocket.NetConn(r.Context(), conn, websocket.MessageBinary)
+	defer netConn.Close()
+
+	if err := s.mp.ProxyVNC(r.Context(), name, netConn); err != nil && r.Context().Err() == nil {
+		s.logger.Warn("VNC tunnel ended", "err", err, "vm", name)
+	}
 }

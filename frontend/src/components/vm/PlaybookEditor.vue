@@ -9,7 +9,7 @@ import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language
 import { closeBrackets } from '@codemirror/autocomplete'
 import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { indentationMarkers } from '@replit/codemirror-indentation-markers'
-import YAML from 'js-yaml'
+import * as YAML from 'js-yaml'
 import { darkTheme, darkHighlightStyle } from '../cloudinit/editorTheme.js'
 
 const props = defineProps({

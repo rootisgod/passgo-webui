@@ -569,7 +569,7 @@ build-all: frontend-build
 # Output:
 # PassGo Web v0.1.0
 # Config: ~/.passgo-web/config.json
-# Listening on http://0.0.0.0:8080
+# Listening on http://127.0.0.1:8080
 # Default credentials — admin / <generated-password>
 ```
 
@@ -730,7 +730,7 @@ Run with: `go test -tags e2e -timeout 300s ./...`
 
 ### 7.4 Frontend Tests
 
-Use **Vitest** (ships with Vite, zero extra config) for unit tests of the Vue components and API client.
+Use **Vitest** (installed as a development dependency) for unit tests of Vue components, composables, stores, and the API client.
 
 ```
 frontend/
@@ -754,14 +754,14 @@ frontend/
 
 **Test command:**
 ```bash
-cd frontend && npx vitest run          # Single run
+cd frontend && npm test                # Single run
 cd frontend && npx vitest              # Watch mode
 ```
 
 Add to the top-level Makefile:
 ```makefile
 test-frontend:
-    cd frontend && npx vitest run
+    cd frontend && npm test
 ```
 
 ### 7.5 Test Commands
@@ -773,7 +773,7 @@ test:
 
 # Run frontend tests
 test-frontend:
-    cd frontend && npx vitest run
+    cd frontend && npm test
 
 # Run with race detector
 test-race:
@@ -854,7 +854,7 @@ Build in this sequence so that each phase is testable before moving to the next:
 7. Add `Toast.vue` and `ConfirmModal.vue` for feedback and destructive action confirmation
 8. Add `<Transition>` on panel/tab switches and `<TransitionGroup>` on the tree list
 9. Write Vitest tests for the API client, store, and key components
-10. Verify: `npx vitest run` passes, full workflow works in browser
+10. Verify: `npm test` passes, full workflow works in browser
 
 ### Phase 6: Frontend — Console
 1. Install xterm.js, @xterm/addon-fit, @xterm/addon-attach

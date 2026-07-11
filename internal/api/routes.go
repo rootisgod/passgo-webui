@@ -30,12 +30,18 @@ type Server struct {
 	// write would need a deep Clone() of Config to avoid racing map mutations
 	// against json.Marshal, and on a homelab the ms-scale save is not a
 	// contention point worth that complexity.
-	cfgMu         sync.Mutex
+	cfgMu         sync.RWMutex
 	ansibleRunner ansibleRunner
 	scheduler     *scheduler
 	loginLimiter  *loginRateLimiter
 	apiLimiter    *apiRateLimiter
 	eventLog      *EventLog
+}
+
+func (s *Server) configSnapshot() *config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.Clone()
 }
 
 func NewServer(mp *multipass.Client, cfg *config.Config, configPath string, logger *slog.Logger, version, buildTime, gitCommit string, builtinTemplatesFS embed.FS) *Server {
@@ -229,9 +235,10 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/vms/{name}/shell/sessions/{sessionId}", s.handleDeleteShellSession)
 	mux.HandleFunc("/api/v1/vms/{name}/shell/{sessionId}", s.handleShell)
 
-	// Graphical console (noVNC running inside the guest on port 6080)
+	// Graphical console. Trusted noVNC assets run in the frontend; this endpoint
+	// tunnels raw RFB traffic to the guest's loopback-only VNC server.
 	mux.HandleFunc("GET /api/v1/vms/{name}/vnc", s.handleGetVNCConsole)
-	mux.HandleFunc("/api/v1/vms/{name}/vnc/proxy/", s.handleVNCProxy)
+	mux.HandleFunc("GET /api/v1/vms/{name}/vnc/websocket", s.handleVNCWebSocket)
 
 	// Serve static frontend for all non-API routes
 	if staticFS != nil {
@@ -240,7 +247,7 @@ func (s *Server) Handler(staticFS http.Handler) http.Handler {
 
 	// Apply global middleware (outermost first)
 	var handler http.Handler = mux
-	handler = authMiddleware(s.sessions, s.cfg, handler)
+	handler = authMiddleware(s, handler)
 	handler = bodySizeLimitMiddleware(handler)
 	handler = corsMiddleware(handler)
 	handler = securityHeadersMiddleware(handler)

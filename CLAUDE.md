@@ -131,7 +131,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Long-running operations (VM launch, clone) run in goroutines with in-memory status tracking via launchTracker
 - Persistent PTY sessions via `ptyStore` (keyed by `vmName:sessionID`): shell processes survive WebSocket disconnects, 64KB scrollback ring buffer replays on reconnect, 30-min TTL reaper cleans idle sessions
 - Platform-specific PTY code split via build tags: `pty_store_unix.go` (creack/pty) and `pty_store_windows.go` (conpty)
-- VM groups stored in `config.json` as `groups []string` (ordered names) + `vm_groups map[string]string` (VM→group), protected by `cfgMu` mutex
+- VM groups stored in `config.json` as `groups []string` (ordered names) + `vm_groups map[string]string` (VM→group), protected by `cfgMu` (`sync.RWMutex`). Readers that outlive the lock must use `Server.configSnapshot()`, which calls the deep-copying `Config.Clone()`; never retain config slices, maps, or pointers after unlocking.
 - Embedded assets use `//go:embed` in `cmd/server/main.go` and are passed to `api.NewServer()`
 - LLM chat agent loop in `llm_agent.go`: orchestrates non-streaming tool calls then streams final response via SSE. System prompt refreshed every iteration with live VM/group state. Write-tool iterations capped at 50; read-only tools unlimited.
 - LLM client in `llm_client.go`: OpenAI-compatible HTTP client (works with OpenRouter, Ollama, any `/v1/chat/completions` endpoint). Non-streaming mode for tool loop, streaming for final response.
@@ -144,7 +144,8 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - Config export/import in `handlers_configbundle.go`: bundles config.json fields + cloud-init templates + playbooks into a single JSON file. Export strips password and LLM API key. Import merges into existing config preserving sensitive/host-specific fields. **When adding new persistent config fields, user-managed file directories, or new sections to config.json, update `handleExportConfig` and `handleImportConfig` to include them in the bundle.**
 - Scheduled operations in `scheduler.go`: background goroutine ticks every 30s, checks enabled schedules against current time/weekday, fires start/stop VM or enqueues playbook runs. Schedules stored as `[]Schedule` in config.json. CRUD handlers in `handlers_schedule.go`. `lastFire` map prevents double-fire within same minute.
 - API tokens in `handlers_tokens.go`: persistent Bearer tokens stored as SHA-256 hashes in config.json (`APITokens []APIToken`). Token format: `pgo_` + 32 hex bytes. Raw token shown once at creation, never stored. Auth middleware checks Bearer tokens against both session store and API token hashes. CRUD handlers protected by `cfgMu`. Config export excludes tokens.
-- Security: `trust_proxy` config flag (default false) gates trust of `X-Forwarded-For` and `X-Forwarded-Proto` headers. `clientIPFromRequest()` in middleware.go is the canonical IP extraction function. Login rate limiter (5/min) + API rate limiter (30/min on chat/VM creation) both use it, and both have janitor goroutines that sweep stale IPs every 5 min (`sessionStore` reaps expired tokens on the same cadence). CSP header set in `securityHeadersMiddleware`. Plaintext passwords auto-migrated to bcrypt on startup; only bcrypt comparison supported at runtime. PTY session IDs use crypto/rand. File transfer paths validated against traversal (`validateRemotePath`). Content-Disposition filenames sanitized. Chat agent loop has 5-minute context timeout. HTTP server has `ReadHeaderTimeout=10s`, `ReadTimeout=60s`, `IdleTimeout=120s` and no `WriteTimeout` (SSE/WebSocket need long writes; per-request timeouts handle those). Graceful shutdown: SIGTERM/SIGINT calls `httpSrv.Shutdown(30s ctx)` before `srv.Shutdown()`.
+- Graphical VNC (`handlers_vnc.go`): the trusted `@novnc/novnc` client is bundled with the frontend. The authenticated WebSocket endpoint wraps the browser connection as a byte stream and `multipass exec`s `nc 127.0.0.1 5901` inside the guest. Never proxy guest HTML under the PassGo origin or expose guest VNC/websockify ports. The desktop cloud-init template generates a random password stored at `/home/ubuntu/.config/tigervnc/passgo-password` and binds TigerVNC to guest loopback.
+- Security: new configs bind to `127.0.0.1:8080` and generate a one-time random admin password. `trust_proxy` config flag (default false) gates trust of `X-Forwarded-For` and `X-Forwarded-Proto` headers. `clientIPFromRequest()` in middleware.go is the canonical IP extraction function. Login rate limiter (5/min) + API rate limiter (30/min on chat/VM creation) both use it, and both have janitor goroutines that sweep stale IPs every 5 min (`sessionStore` reaps expired tokens on the same cadence). CSP header set in `securityHeadersMiddleware`. Plaintext passwords auto-migrated to bcrypt on startup; only bcrypt comparison supported at runtime. PTY session IDs use crypto/rand. File transfer paths validated against traversal (`validateRemotePath`). Cloud-init staging uses exclusive random files; never construct predictable paths in a shared temp directory. Content-Disposition filenames sanitized. Chat agent loop has 5-minute context timeout. HTTP server has `ReadHeaderTimeout=10s`, `ReadTimeout=60s`, `IdleTimeout=120s` and no `WriteTimeout` (SSE/WebSocket need long writes; per-request timeouts handle those). Graceful shutdown: SIGTERM/SIGINT calls `httpSrv.Shutdown(30s ctx)` before `srv.Shutdown()`.
 
 - Event log (`eventlog.go`): append-only JSONL file at `$(dirname configPath)/events.jsonl`. `EventLog` struct with in-memory cache (200 events) for fast recent queries. 10k line cap with rotation triggered both at startup AND inline in `Emit` (via `rotateLocked`) so long-running processes stay bounded. Write errors are logged, not swallowed; failed writes do not increment `count`. `EmitEvent(category, action, actor, resource, result, detail)` is nil-safe. All state-changing handlers emit events. Categories: "vm", "schedule", "ansible", "llm", "config", "webhook". Actors: "user", "scheduler", "llm_agent", "system".
 - Webhook notifications (`webhooks.go`, `handlers_webhooks.go`): fire HTTP POST to user-configured URLs when events match category/result filters. `WebhookDispatcher` interface wired into `EventLog.Emit()` via `SetDispatcher()`. Dispatch runs in goroutines (fire-and-forget, 10s timeout). Loop prevention: events with `category == "webhook"` never trigger further webhooks. Optional HMAC-SHA256 signing via `X-PassGo-Signature` header. Config: `Webhook` struct with id, name, url, enabled, categories, results, secret, created_at. Stored as `webhooks` array in config.json. Config export excludes secret field.
@@ -158,7 +159,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 - CodeMirror components must render outside Vue `<Transition>` to avoid DOM conflicts
 - Both CodeMirror editors (CloudInitEditor, PlaybookEditor) share a dark theme from `editorTheme.js` and support: search (Ctrl+F), fullscreen toggle (with exit bar), indent guides (`@replit/codemirror-indentation-markers`), word wrap toggle (via `Compartment` reconfigure), and keyboard shortcut hints (`KeyboardShortcuts.vue`). CloudInitEditor also has autocomplete for top-level cloud-init keys from `CLOUD_INIT_KEYS` dictionary.
 - Icons from `lucide-vue-next`, passed as raw components to ActionButton via `markRaw()`
-- Polling via `usePolling` composable (3s interval, pauses when tab hidden)
+- Polling via `usePolling` composable (3s interval, pauses when tab hidden). Its serialized runner coalesces ticks while an async refresh is in flight; polling callbacks must return their Promise so requests cannot overlap.
 - Metrics history buffered in `useMetricsHistory.js` (reactive store, recorded on each poll)
 - Sparkline component (`Sparkline.vue`) uses SVG viewBox for responsive width
 - Context menu (`ContextMenu.vue`) is reusable: positioned dropdown with click-outside/Escape close
@@ -177,7 +178,7 @@ A web-based management interface for Canonical's Multipass, modelled on the Prox
 ### CI / Release gating
 - One workflow: `.github/workflows/release.yml`. Three jobs:
   - `test` — `go vet ./...` + `task test-race` (race detector on, all packages). Stubs `cmd/server/frontend/dist/index.html` so `//go:embed all:frontend/dist` resolves without a real Vite build.
-  - `build` — cross-compiles linux/darwin/windows × amd64/arm64, UPX-compresses linux binaries.
+  - `build` — runs `npm ci`, frontend tests, `npm audit --audit-level=high`, and the production build before cross-compiling linux/darwin/windows × amd64/arm64; linux binaries are UPX-compressed.
   - `release` — `needs: [test, build]`, gated on `push` to `main`. Tests or build failing blocks the release.
 - `test` and `build` run in parallel on every PR and push.
 - Any Go code that depends on the embedded frontend must tolerate the stub in CI, or the test job will fail.
@@ -208,6 +209,8 @@ Host:              GET /host/resources (CPU count, total RAM)
 Networks:          GET /networks
 Shell sessions:    POST /vms/{name}/shell/sessions (create), GET .../sessions (list),
                    DELETE .../sessions/{sessionId} (delete), WS /vms/{name}/shell/{sessionId}
+VNC console:       GET /vms/{name}/vnc (availability + ephemeral connection details),
+                   WS /vms/{name}/vnc/websocket (raw RFB tunnel to guest loopback)
 Groups:            GET /groups, POST /groups, PUT /groups/{name} (rename),
                    DELETE /groups/{name}, PUT /groups/assign, PUT /groups/reorder
 Profiles:         GET/POST /profiles, PUT/DELETE /profiles/{id} (launch profile CRUD)
@@ -252,6 +255,7 @@ App.vue
 │   ├── VmSummaryTab.vue + CloudInitStatus.vue + Sparkline.vue (resource timeline graphs)
 │   ├── VmConsoleTab.vue (multi-tab container: tab bar + N ConsoleTerminal instances)
 │   │   └── ConsoleTerminal.vue (single xterm.js + WebSocket session, power-on guard)
+│   ├── VmVncConsoleTab.vue (lazy-loaded trusted noVNC client + raw RFB WebSocket)
 │   ├── VmSnapshotsTab.vue (clone from snapshot support)
 │   ├── VmMountsTab.vue (Open on Host button + Browse Host… / Browse VM… pickers via PathBrowserModal)
 │   ├── VmTransferTab.vue (file browser, power-on guard — shares `useFileList` composable with PathBrowserModal)

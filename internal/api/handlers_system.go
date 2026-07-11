@@ -78,7 +78,7 @@ func (s *Server) handleHostResources(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetVMDefaults(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.cfg.VMDefaults)
+	writeJSON(w, http.StatusOK, s.configSnapshot().VMDefaults)
 }
 
 func (s *Server) handleUpdateVMDefaults(w http.ResponseWriter, r *http.Request) {
@@ -96,13 +96,17 @@ func (s *Server) handleUpdateVMDefaults(w http.ResponseWriter, r *http.Request) 
 	if req.DiskGB < 1 {
 		req.DiskGB = 1
 	}
+	s.cfgMu.Lock()
 	s.cfg.VMDefaults = &req
 	if err := s.cfg.Save(s.configPath); err != nil {
+		s.cfgMu.Unlock()
 		s.logger.Error("failed to save config", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to save configuration")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.cfg.VMDefaults)
+	response := *s.cfg.VMDefaults
+	s.cfgMu.Unlock()
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

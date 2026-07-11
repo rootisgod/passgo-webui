@@ -53,6 +53,8 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
+          npm test
+          npm audit --audit-level=high
           npm run build
 
       - name: Copy frontend dist for embedding
